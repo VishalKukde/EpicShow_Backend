@@ -31,7 +31,7 @@ const envOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
-const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins,  "https://epicshow.vercel.app"])];
 const isProd = process.env.NODE_ENV === "production";
 
 function isPrivateLanOrigin(origin) {
