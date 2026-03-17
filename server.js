@@ -11,6 +11,7 @@ import seatRoutes from "./routes/seat.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
 import bookingRoutes from "./routes/booking.routes.js";
 import walletRoutes from "./routes/wallet.routes.js";
+import tmdbRoutes from "./routes/tmdb.routes.js";
 import errorHandler from "./middleware/error.middleware.js";
 
 dotenv.config();
@@ -73,6 +74,17 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
+// Health check (useful for warming up cold starts)
+app.get(["/health", "/api/health"], (req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: "epicshow-backend",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    mongoReadyState: mongoose.connection.readyState,
+  });
+});
+
 // Routes
 app.use("/auth", authRoutes);
 app.use("/api/auth", authRoutes);
@@ -82,6 +94,7 @@ app.use("/", seatRoutes);
 app.use("/", paymentRoutes);
 app.use("/", bookingRoutes);
 app.use("/", walletRoutes);
+app.use("/tmdb", tmdbRoutes);
 
 // Error handler (LAST)
 app.use(errorHandler);

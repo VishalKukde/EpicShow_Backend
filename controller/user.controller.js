@@ -37,7 +37,7 @@ export const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id; // from auth middleware
 
-    const { name, phone, avatar } = req.body;
+    const { name, phone, avatar, preferences } = req.body;
 
     const updates = {};
 
@@ -66,6 +66,27 @@ export const updateProfile = async (req, res) => {
     // Avatar
     if (avatar !== undefined) {
       updates.avatar = avatar;
+    }
+
+    // Preferences
+    if (preferences !== undefined) {
+      if (typeof preferences !== "object" || preferences === null) {
+        return res.status(400).json({ message: "Invalid preferences payload" });
+      }
+
+      if (preferences.darkMode !== undefined) {
+        if (typeof preferences.darkMode !== "boolean") {
+          return res.status(400).json({ message: "darkMode must be a boolean" });
+        }
+        updates["preferences.darkMode"] = preferences.darkMode;
+      }
+
+      if (preferences.notifications !== undefined) {
+        if (typeof preferences.notifications !== "boolean") {
+          return res.status(400).json({ message: "notifications must be a boolean" });
+        }
+        updates["preferences.notifications"] = preferences.notifications;
+      }
     }
 
     const user = await User.findByIdAndUpdate(userId, updates, {

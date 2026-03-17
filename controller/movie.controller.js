@@ -9,6 +9,20 @@ export const getMovies = async (req, res) => {
   }
 };
 
+export const getLatestReleases = async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 20);
+    const movies = await Movie.find({
+      releaseDate: { $exists: true, $ne: null },
+    })
+      .sort({ releaseDate: -1 })
+      .limit(limit);
+    res.json(movies);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 
 export const getMovieById = async (req, res) => {
   try {
@@ -33,6 +47,7 @@ export const createMovie = async (req, res) => {
         language,
         runtimeMinutes,
         rating,
+        releaseDate,
       } = raw || {};
 
       const missing = [];
@@ -53,6 +68,15 @@ export const createMovie = async (req, res) => {
       if (rating !== undefined && Number.isNaN(Number(rating))) {
         missing.push("rating");
       }
+      let releaseDateValue;
+      if (releaseDate !== undefined && releaseDate !== null && String(releaseDate).trim() !== "") {
+        const parsed = new Date(releaseDate);
+        if (Number.isNaN(parsed.getTime())) {
+          missing.push("releaseDate");
+        } else {
+          releaseDateValue = parsed;
+        }
+      }
 
       if (missing.length > 0) {
         return { error: missing };
@@ -71,6 +95,7 @@ export const createMovie = async (req, res) => {
         language: language.trim(),
         runtimeMinutes: Number(runtimeMinutes),
         rating: ratingValue,
+        ...(releaseDateValue ? { releaseDate: releaseDateValue } : {}),
       };
     };
 
