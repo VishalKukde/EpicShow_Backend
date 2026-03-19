@@ -1,6 +1,6 @@
 import express from "express";
-import { createMovie, getLatestReleases, getMovieById, getMovies } from "../controller/movie.controller.js";
-import authMiddleware from "../middleware/auth.middleware.js";
+import { createMovie, getLatestReleases, getMovieById, getMovies } from "../controllers/movie.controller.js";
+import authMiddleware from "../../../middleware/auth.middleware.js";
 
 const router = express.Router();
 

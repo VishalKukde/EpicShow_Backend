@@ -1,10 +1,13 @@
-import Seat from "../models/Seat.js"
+import Seat from "../models/Seat.js";
 import SeatStatus from "../models/SeatStatus.js";
 import mongoose from "mongoose";
 
+const PREMIUM_ROWS = new Set(["H", "I", "J"]);
+const getSeatPrice = (rowLabel, basePrice) =>
+  PREMIUM_ROWS.has(rowLabel) ? 320 : basePrice;
+
 export const getSeatLayoutByCinemaId = async (req, res) => {
   try {
-
     const { cinemaId } = req.params;
 
     // From query params (frontend should send these)
@@ -22,54 +25,47 @@ export const getSeatLayoutByCinemaId = async (req, res) => {
       cinemaId: cinemaId.trim(),
       showDate: showDate.trim(),
       showSlot: showSlot.trim(),
-      status: { $in: ["locked", "sold"] }
+      status: { $in: ["locked", "sold"] },
     });
-
 
     // 3️⃣ Create fast lookup map
     const statusMap = new Map();
 
-    seatStatuses.forEach(s => {
+    seatStatuses.forEach((s) => {
       if (s.status === "locked" && s.lockedBy === userId) {
         statusMap.set(s.seatId, "selected"); // user’s own lock
       } else {
         statusMap.set(s.seatId, s.status); // locked by others / sold
       }
-
     });
 
     // 4️⃣ Merge status into layout
-    const mergedLayout = cinema.seats.map(row => ({
+    const mergedLayout = cinema.seats.map((row) => ({
       row: row.row,
-      seats: row.seats.map(seat => ({
+      seats: row.seats.map((seat) => ({
         id: seat.seatId,
         number: Number(seat.number),
-        price: seat.price,
-        status: statusMap.get(seat.seatId) || "available"
-      }))
+        price: getSeatPrice(row.row, seat.price),
+        status: statusMap.get(seat.seatId) || "available",
+      })),
     }));
 
     res.json(mergedLayout);
-
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to load seat layout" });
   }
 };
 
-
 export const lockSeat = async (req, res) => {
   try {
-    // const sessionId = req.headers["x-session-id"];
-
     const {
       movieId,
       cinemaId,
       showDate,
       showSlot,
       seatId,
-      userId
+      userId,
     } = req.body;
 
     if (!userId) {
@@ -87,7 +83,7 @@ export const lockSeat = async (req, res) => {
       showDate,
       showSlot,
       lockedBy: userId,
-      status: "locked"
+      status: "locked",
     });
 
     let expireTime;
@@ -108,18 +104,17 @@ export const lockSeat = async (req, res) => {
       seatId,
       status: "locked",
       lockedBy: userId,
-      expireAt: expireTime
+      expireAt: expireTime,
     });
 
     res.json({
       success: true,
-      expireAt: expireTime
+      expireAt: expireTime,
     });
-
   } catch (err) {
     if (err.code === 11000) {
       return res.status(409).json({
-        message: "Seat already locked"
+        message: "Seat already locked",
       });
     }
 
@@ -128,22 +123,16 @@ export const lockSeat = async (req, res) => {
   }
 };
 
-
-
 export const unlockSeat = async (req, res) => {
   try {
-    // const sessionId = req.headers["x-session-id"];
-
     const {
       movieId,
       cinemaId,
       showDate,
       showSlot,
-      seatId, // 👈 now expecting array
-      userId  
+      seatId,
+      userId,
     } = req.body;
-
-    // console.log("seatID", seatId);
 
     if (!userId) {
       return res.status(400).json({ message: "Missing user id" });
@@ -167,14 +156,13 @@ export const unlockSeat = async (req, res) => {
       showDate,
       showSlot,
       seatId: { $in: seatId },
-      lockedBy: userId
+      lockedBy: userId,
     });
 
     res.json({
       success: true,
-      unlockedCount: result.deletedCount
+      unlockedCount: result.deletedCount,
     });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to unlock seats" });

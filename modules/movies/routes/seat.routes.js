@@ -1,6 +1,6 @@
 import express from "express";
-import { getSeatLayoutByCinemaId, lockSeat, unlockSeat} from "../controller/seat.controller.js"
-import authMiddleware from "../middleware/auth.middleware.js";
+import { getSeatLayoutByCinemaId, lockSeat, unlockSeat } from "../controllers/seat.controller.js";
+import authMiddleware from "../../../middleware/auth.middleware.js";
 
 const router = express.Router();
 

@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
+import User from "../modules/user/model/User.js";
 
 const authenticateViaRefreshToken = async (req, res, next) => {
   if (!req.cookies.refreshToken) {

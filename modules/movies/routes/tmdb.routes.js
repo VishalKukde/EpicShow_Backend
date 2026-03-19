@@ -1,5 +1,5 @@
 import express from "express";
-import { getMovieDetails, getUpcomingMovies } from "../controller/tmdb.controller.js";
+import { getMovieDetails, getUpcomingMovies } from "../controllers/tmdb.controller.js";
 
 const router = express.Router();
 

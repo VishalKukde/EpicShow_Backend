@@ -1,7 +1,7 @@
 import crypto from "crypto";
-import User from "../models/User.js";
-import { WalletTransaction } from "../models/WalletTransaction.js";
-import { razorpay } from "../config/razorpay.js";
+import User from "../../user/model/User.js";
+import { WalletTransaction } from "../model/WalletTransaction.js";
+import { razorpay } from "../../../config/razorpay.js";
 
 const MIN_TOPUP = 1;
 const MAX_TOPUP = 5000;

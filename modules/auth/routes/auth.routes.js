@@ -7,8 +7,8 @@ import {
   logout,
   changePassword,
 } from "../controller/auth.controller.js";
-import changePasswordRateLimit from "../middleware/changePasswordRateLimit.middleware.js";
-import requireAccessToken from "../middleware/requireAccessToken.middleware.js";
+import changePasswordRateLimit from "../../../middleware/changePasswordRateLimit.middleware.js";
+import requireAccessToken from "../../../middleware/requireAccessToken.middleware.js";
 
 router.post("/register", register);
 router.post("/login", login);

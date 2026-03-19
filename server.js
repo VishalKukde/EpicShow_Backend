@@ -4,14 +4,14 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 
-import moviesRoutes from "./routes/movie.routes.js";
-import userRoutes from "./routes/user.routes.js";
-import authRoutes from "./routes/auth.routes.js";
-import seatRoutes from "./routes/seat.routes.js";
-import paymentRoutes from "./routes/payment.routes.js";
-import bookingRoutes from "./routes/booking.routes.js";
-import walletRoutes from "./routes/wallet.routes.js";
-import tmdbRoutes from "./routes/tmdb.routes.js";
+import moviesRoutes from "./modules/movies/routes/movie.routes.js";
+import userRoutes from "./modules/user/routes/user.routes.js";
+import authRoutes from "./modules/auth/routes/auth.routes.js";
+import seatRoutes from "./modules/movies/routes/seat.routes.js";
+import paymentRoutes from "./modules/movies/routes/payment.routes.js";
+import bookingRoutes from "./modules/movies/routes/booking.routes.js";
+import walletRoutes from "./modules/wallet/routes/wallet.routes.js";
+import tmdbRoutes from "./modules/movies/routes/tmdb.routes.js";
 import errorHandler from "./middleware/error.middleware.js";
 
 dotenv.config();

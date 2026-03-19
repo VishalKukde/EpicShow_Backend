@@ -5,8 +5,8 @@ import {
   getBooking,
   getLatestBookings,
   getUserBookingStats,
-} from "../controller/booking.controller.js";
-import authMiddleware from "../middleware/auth.middleware.js";
+} from "../controllers/booking.controller.js";
+import authMiddleware from "../../../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -15,7 +15,5 @@ router.get("/bookings/stats", authMiddleware, getUserBookingStats);
 router.get("/bookings/latest", authMiddleware, getLatestBookings);
 router.get("/booking/:id", authMiddleware, getBooking);
 router.patch("/cancel/:id", authMiddleware, cancelBooking);
-
-
 
 export default router;

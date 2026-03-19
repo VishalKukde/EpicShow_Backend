@@ -1,10 +1,10 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
-import User from "../models/User.js";
-import { generateAccessToken, generateRefreshToken } from "../utils/generateToken.js";
-import asyncHandler from "../utils/asyncHandler.js";
-import { sendPasswordChangedEmail } from "../utils/email.js";
+import { generateAccessToken, generateRefreshToken } from "../../../utils/generateToken.js";
+import asyncHandler from "../../../utils/asyncHandler.js";
+import { sendPasswordChangedEmail } from "../../../utils/email.js";
+import User from "../../user/model/User.js";
 
 dotenv.config();
 const isProd = process.env.NODE_ENV === "production";

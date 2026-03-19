@@ -1,10 +1,7 @@
 import Booking from "../models/Booking.js";
 import Payment from "../models/Payment.js";
-import { parseShowDateTime } from "../utils/Helper.js";
+import {parseShowDateTime} from "../../../utils/Helper.js"
 import Movie from "../models/Movie.js";
-// import Sport from "../models/Sport.js";
-// import Gaming from "../models/Gaming.js";
-// import Event from "../models/Event.js";
 
 export const getBooking = async (req, res) => {
   try {

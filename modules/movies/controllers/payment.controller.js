@@ -1,15 +1,15 @@
-import Seat from "../models/Seat.js";
-import SeatStatus from "../models/SeatStatus.js";
 import crypto from "crypto";
 import mongoose from "mongoose";
 import ExcelJS from "exceljs";
+import Seat from "../models/Seat.js";
+import SeatStatus from "../models/SeatStatus.js";
 import Booking from "../models/Booking.js";
 import Payment from "../models/Payment.js"
-import User from "../models/User.js";
-import RewardTransaction from "../models/RewardTransaction.js";
+import User from "../../user/model/User.js";
+import RewardTransaction from "../../wallet/model/RewardTransaction.js";
 import ExportLog from "../models/ExportLog.js";
-import { WalletTransaction } from "../models/WalletTransaction.js";
-import { razorpay } from "../config/razorpay.js";
+import { WalletTransaction } from "../../wallet/model/WalletTransaction.js";
+import { razorpay } from "../../../config/razorpay.js";
 
 const MIN_REWARD_POINTS_TO_ELIGIBLE = 150;
 const REWARD_REDEEM_POINTS = 100;
@@ -490,7 +490,6 @@ export const verifyPayment = async (req, res) => {
     res.status(500).json({ message: "Payment verification failed" });
   }
 };
-
 
 
 // POST /payment/fail
