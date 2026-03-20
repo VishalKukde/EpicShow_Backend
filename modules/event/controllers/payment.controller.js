@@ -1,52 +1,41 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
-import Booking from "../models/Booking.js";
-import Payment from "../models/Payment.js";
+import Booking from "../../movies/models/Booking.js";
+import Payment from "../../movies/models/Payment.js";
 import User from "../../user/model/User.js";
 import RewardTransaction from "../../wallet/model/RewardTransaction.js";
 import { WalletTransaction } from "../../wallet/model/WalletTransaction.js";
 import { razorpay } from "../../../config/razorpay.js";
+import Event from "../models/Event.js";
 
 const MIN_REWARD_POINTS_TO_ELIGIBLE = 150;
 const REWARD_REDEEM_POINTS = 100;
 const REWARD_REDEEM_DISCOUNT = 100;
 const REWARD_EARN_RATE = 0.1;
 
-const normalizeAmount = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
 export const preparePayment = async (req, res) => {
   try {
     const userId = req.user?.id || req.body.userId || req.body.user;
     const {
-      itemId,
       movieId,
-      venueId,
+      eventId,
+      itemId,
       cinemaId,
       showDate,
       showSlot,
-      seatIds,
+      seatIds = [],
       coupon,
       redeemReward = false,
-      amount,
     } = req.body;
 
-    const resolvedItemId = itemId || movieId;
-    const resolvedVenueId = venueId || cinemaId;
+    const resolvedItemId = itemId || eventId || movieId;
 
     if (!userId) {
       return res.status(400).json({ message: "Missing user id" });
     }
 
-    if (!resolvedItemId || !resolvedVenueId || !showDate || !showSlot || !seatIds?.length) {
+    if (!resolvedItemId || !cinemaId || !showDate || !showSlot) {
       return res.status(400).json({ message: "Missing booking details" });
-    }
-
-    const baseAmount = normalizeAmount(amount);
-    if (baseAmount === null) {
-      return res.status(400).json({ message: "Missing or invalid amount" });
     }
 
     if (coupon && redeemReward) {
@@ -55,7 +44,12 @@ export const preparePayment = async (req, res) => {
         .json({ message: "Coupon and reward redemption cannot be applied together" });
     }
 
-    let total = baseAmount;
+    const event = await Event.findById(resolvedItemId).select("price");
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    let total = Number(event.price || 0);
 
     if (coupon && typeof coupon.off === "number") {
       total -= coupon.off;
@@ -108,46 +102,25 @@ export const createOrder = async (req, res) => {
   try {
     const userId = req.user?.id || req.body.userId || req.body.user;
     const {
-      venueId,
-      cinemaId,
-      itemId,
       movieId,
+      eventId,
+      itemId,
+      cinemaId,
       showDate,
       showSlot,
-      seatIds,
+      seatIds = [],
       coupon,
+      showType,
       redeemReward = false,
-      amount,
-      sportType,
-      league,
-      matchNo,
-      teamA,
-      teamB,
-      matchLabel,
-      venue,
-      city,
     } = req.body;
 
-    const resolvedItemId = itemId || movieId;
-    const resolvedVenueId = venueId || cinemaId;
+    const resolvedItemId = itemId || eventId || movieId;
+    const resolvedShowType = showType || "event";
 
-    if (!resolvedVenueId || !resolvedItemId || !showDate || !showSlot || !seatIds?.length || !userId) {
+    if (!cinemaId || !resolvedItemId || !showDate || !showSlot || !userId) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    if (!league || !teamA || !teamB) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: "Missing match details" });
-    }
-
-    const baseAmount = normalizeAmount(amount);
-    if (baseAmount === null) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: "Missing or invalid amount" });
     }
 
     if (coupon && redeemReward) {
@@ -158,7 +131,14 @@ export const createOrder = async (req, res) => {
         .json({ message: "Coupon and reward redemption cannot be applied together" });
     }
 
-    let total = baseAmount;
+    const event = await Event.findById(resolvedItemId).select("price").session(session);
+    if (!event) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    let total = Number(event.price || 0);
 
     if (coupon && typeof coupon.off === "number") {
       total -= coupon.off;
@@ -205,35 +185,18 @@ export const createOrder = async (req, res) => {
       total = 0;
     }
 
-    const normalizedMatchLabel =
-      matchLabel || (teamA && teamB ? `${teamA} vs ${teamB}` : null);
-
     const [createdBooking] = await Booking.create(
       [
         {
           userId,
-          matchId: resolvedItemId,
-          sportType: sportType || "Sport",
-          league,
-          matchNo,
-          teams: {
-            teamA,
-            teamB,
-            label: normalizedMatchLabel || undefined,
-          },
-          schedule: {
-            date: showDate,
-            time: showSlot,
-          },
-          venue: {
-            id: resolvedVenueId,
-            name: venue || undefined,
-            city: city || undefined,
-          },
+          itemId: resolvedItemId,
+          cinemaId,
+          date: showDate,
+          slot: showSlot,
           seatIds,
           amount: total,
-          currency: "INR",
           coupon: coupon ? coupon.code : null,
+          showType: resolvedShowType,
           rewardPointsRedeemed: rewardPointsToRedeem,
           rewardDiscount,
         },
@@ -405,13 +368,11 @@ export const verifyPayment = async (req, res) => {
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
-
     console.error(err);
     res.status(500).json({ message: "Payment verification failed" });
   }
 };
 
-// POST /sports/payment/fail
 export const markPaymentFailed = async (req, res) => {
   try {
     const { bookingId } = req.body;
@@ -595,7 +556,7 @@ export const payWithWallet = async (req, res) => {
             balanceBefore,
             balanceAfter,
             status: "success",
-            note: `Sport booking payment (${booking._id})`,
+            note: `Event booking payment (${booking._id})`,
             booking: booking._id,
             payment: payment._id,
           },

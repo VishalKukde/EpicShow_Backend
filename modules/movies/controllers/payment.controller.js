@@ -1,6 +1,9 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
 import ExcelJS from "exceljs";
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
 import Seat from "../models/Seat.js";
 import SeatStatus from "../models/SeatStatus.js";
 import Booking from "../models/Booking.js";
@@ -15,6 +18,53 @@ const MIN_REWARD_POINTS_TO_ELIGIBLE = 150;
 const REWARD_REDEEM_POINTS = 100;
 const REWARD_REDEEM_DISCOUNT = 100;
 const REWARD_EARN_RATE = 0.1;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const sportsDataPath = path.join(__dirname, "../../sports/data/sports.json");
+let sportsCache = null;
+
+const loadSportsData = async () => {
+  if (sportsCache) return sportsCache;
+  try {
+    const raw = await fs.readFile(sportsDataPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    sportsCache = Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("Failed to load sports data:", err);
+    sportsCache = [];
+  }
+  return sportsCache;
+};
+
+const buildSportTitle = (match, fallback) => {
+  if (match?.teamA && match?.teamB) {
+    return `${match.teamA} vs ${match.teamB}`;
+  }
+  if (fallback?.teams?.teamA && fallback?.teams?.teamB) {
+    return `${fallback.teams.teamA} vs ${fallback.teams.teamB}`;
+  }
+  if (match?.league) {
+    return `${match.league}${match.matchNo ? ` • ${match.matchNo}` : ""}`;
+  }
+  return fallback?.title || "Sport booking";
+};
+
+const buildSportDetails = (match, fallback) => {
+  const parts = [];
+  const league = match?.league || fallback?.league;
+  const matchNo = match?.matchNo || fallback?.matchNo;
+  const venue = match?.venue || fallback?.venue?.name;
+  const city = match?.city || fallback?.venue?.city;
+
+  if (league) parts.push(league);
+  if (matchNo) parts.push(matchNo);
+
+  const venueLabel = [venue, city].filter(Boolean).join(", ");
+  if (venueLabel) parts.push(venueLabel);
+
+  return parts.join(" • ");
+};
 
 export const preparePayment = async (req, res) => {
   try {
@@ -773,20 +823,53 @@ export const getPaymentTransactions = async (req, res) => {
           from: "bookings",
           localField: "bookingId",
           foreignField: "_id",
-          as: "booking",
+          as: "movieBooking",
         },
       },
-      { $unwind: "$booking" },
+      {
+        $lookup: {
+          from: "sportbookings",
+          localField: "bookingId",
+          foreignField: "_id",
+          as: "sportBooking",
+        },
+      },
+      {
+        $addFields: {
+          movieBooking: { $arrayElemAt: ["$movieBooking", 0] },
+          sportBooking: { $arrayElemAt: ["$sportBooking", 0] },
+        },
+      },
+      {
+        $addFields: {
+          booking: { $ifNull: ["$movieBooking", "$sportBooking"] },
+          bookingType: {
+            $cond: [
+              { $ne: ["$movieBooking", null] },
+              "movie",
+              {
+                $cond: [{ $ne: ["$sportBooking", null] }, "sport", null],
+              },
+            ],
+          },
+        },
+      },
       { $match: { "booking.userId": userId } },
       {
         $addFields: {
           itemObjectId: {
-            $convert: {
-              input: "$booking.itemId",
-              to: "objectId",
-              onError: null,
-              onNull: null,
-            },
+            $cond: [
+              { $eq: ["$bookingType", "movie"] },
+              {
+                $convert: {
+                  input: "$booking.itemId",
+                  to: "objectId",
+                  onError: null,
+                  onNull: null,
+                },
+              },
+              null,
+            ],
           },
         },
       },
@@ -816,16 +899,81 @@ export const getPaymentTransactions = async (req, res) => {
             paymentId: "$paymentId",
             orderId: "$orderId",
             bookingId: "$booking._id",
+            matchId: "$booking.matchId",
+            league: "$booking.league",
+            matchNo: "$booking.matchNo",
+            teams: "$booking.teams",
+            venue: "$booking.venue",
             title: {
-              $ifNull: [
-                "$movie.name",
-                { $concat: ["Booking - ", "$booking.cinemaId"] },
+              $cond: [
+                { $eq: ["$bookingType", "sport"] },
+                {
+                  $ifNull: [
+                    "$booking.teams.label",
+                    {
+                      $cond: [
+                        {
+                          $and: [
+                            { $ifNull: ["$booking.teams.teamA", false] },
+                            { $ifNull: ["$booking.teams.teamB", false] },
+                          ],
+                        },
+                        {
+                          $concat: [
+                            "$booking.teams.teamA",
+                            " vs ",
+                            "$booking.teams.teamB",
+                          ],
+                        },
+                        {
+                          $cond: [
+                            { $ifNull: ["$booking.league", false] },
+                            {
+                              $cond: [
+                                { $ifNull: ["$booking.matchNo", false] },
+                                {
+                                  $concat: [
+                                    "$booking.league",
+                                    " • ",
+                                    "$booking.matchNo",
+                                  ],
+                                },
+                                "$booking.league",
+                              ],
+                            },
+                            "Sport booking",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $ifNull: [
+                    "$movie.name",
+                    { $concat: ["Booking - ", "$booking.cinemaId"] },
+                  ],
+                },
               ],
             },
-            showType: { $ifNull: ["$booking.showType", "N/A"] },
+            showType: {
+              $cond: [
+                { $eq: ["$bookingType", "sport"] },
+                { $ifNull: ["$booking.sportType", "sport"] },
+                { $ifNull: ["$booking.showType", { $ifNull: ["$bookingType", "N/A"] }] },
+              ],
+            },
             booking: {
               _id: "$booking._id",
-              showType: { $ifNull: ["$booking.showType", "N/A"] },
+              showType: {
+                $cond: [
+                  { $eq: ["$bookingType", "sport"] },
+                  { $ifNull: ["$booking.sportType", "sport"] },
+                  {
+                    $ifNull: ["$booking.showType", { $ifNull: ["$bookingType", "N/A"] }],
+                  },
+                ],
+              },
             },
             date: "$createdAt",
             method: "$method",
@@ -865,13 +1013,49 @@ export const getPaymentTransactions = async (req, res) => {
     const hasMore = skip + rows.length < total;
     const stats = statsResult[0] || { totalSpent: 0, successfulBookings: 0 };
 
+    let transactions = rows;
+    const hasSports = rows.some((row) => Boolean(row.matchId));
+
+    if (hasSports) {
+      const sportsData = await loadSportsData();
+      const sportsMap = new Map(
+        sportsData
+          .filter((item) => item && item._id)
+          .map((item) => [item._id, item])
+      );
+
+      transactions = rows.map((row) => {
+        if (!row.matchId) {
+          return row;
+        }
+
+        const match = sportsMap.get(row.matchId);
+        const title = buildSportTitle(match, row);
+        const details = buildSportDetails(match, row);
+        const sportShowType = match?.genres?.[0] || row.showType;
+
+        return {
+          ...row,
+          title,
+          details: details || null,
+          showType: sportShowType,
+          booking: row.booking
+            ? {
+                ...row.booking,
+                showType: sportShowType,
+              }
+            : row.booking,
+        };
+      });
+    }
+
     return res.json({
       page,
       limit,
       total,
       hasMore,
       stats,
-      transactions: rows,
+      transactions,
     });
   } catch (err) {
     console.error("getPaymentTransactions error:", err);

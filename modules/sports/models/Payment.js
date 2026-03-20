@@ -1,1 +1,1 @@
-export { default } from "../../../models/${f}.js";
+export { default } from "../../movies/models/Payment.js";

@@ -328,7 +328,6 @@ export const getLatestBookings = async (req, res) => {
       movie: Movie
       // sport: Sport,
       // gaming: Gaming,
-      // event: Event,
     };
 
     const results = await Promise.all(

@@ -1,0 +1,62 @@
+[
+  {
+    "title": "IPL Fan Fest 2026",
+    "description": "A full-day fan carnival with player meet-ups, live screenings, and exclusive merchandise drops.",
+    "showType": "event",
+    "city": "Mumbai",
+    "venue": "Jio World Convention Centre",
+    "venueId": "1921",
+    "startDateTime": "2026-04-12T18:30:00+05:30",
+    "endDateTime": "2026-04-12T22:30:00+05:30",
+    "price": 499,
+    "totalSeats": 240,
+    "availableSeats": 240,
+    "organizer": "Epic Show Live",
+    "imageUrl": "/assets/category/Event.png"
+  },
+  {
+    "title": "Stand-up Night: Rahul Subramanian Live",
+    "description": "An uncensored comedy special with new material and crowd interaction.",
+    "showType": "event",
+    "city": "Bengaluru",
+    "venue": "Phoenix Marketcity Arena",
+    "venueId": "1922",
+    "startDateTime": "2026-04-20T20:00:00+05:30",
+    "endDateTime": "2026-04-20T22:00:00+05:30",
+    "price": 799,
+    "totalSeats": 180,
+    "availableSeats": 180,
+    "organizer": "Laugh Factory India",
+    "imageUrl": "/assets/category/Event.png"
+  },
+  {
+    "title": "EDM Sunset Carnival",
+    "description": "Beachside EDM festival with headline DJs, immersive visuals, and sunset stages.",
+    "showType": "event",
+    "city": "Goa",
+    "venue": "Vagator Beach Grounds",
+    "venueId": "1923",
+    "startDateTime": "2026-05-03T16:00:00+05:30",
+    "endDateTime": "2026-05-03T23:30:00+05:30",
+    "price": 1299,
+    "totalSeats": 320,
+    "availableSeats": 320,
+    "organizer": "Sunset Collective",
+    "imageUrl": "/assets/category/Event.png"
+  },
+  {
+    "title": "Tech & Gaming Expo 2026",
+    "description": "Hands-on demos, esports showcases, and creator meetups across next-gen tech.",
+    "showType": "event",
+    "city": "Hyderabad",
+    "venue": "HITEX Convention Hall",
+    "venueId": "1921",
+    "startDateTime": "2026-05-18T11:00:00+05:30",
+    "endDateTime": "2026-05-18T20:00:00+05:30",
+    "price": 599,
+    "totalSeats": 260,
+    "availableSeats": 260,
+    "organizer": "Future Arena",
+    "imageUrl": ""
+  }
+]
