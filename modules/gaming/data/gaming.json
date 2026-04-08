@@ -1,0 +1,58 @@
+[
+  {
+    "title": "Valorant Champions Watch Party",
+    "description": "Live screenings, shoutcaster commentary, and community giveaways for the playoffs.",
+    "showType": "gaming",
+    "city": "Mumbai",
+    "venue": "Nesco Arena",
+    "venueId": "2921",
+    "startDateTime": "2026-04-06T18:00:00+05:30",
+    "endDateTime": "2026-04-06T22:30:00+05:30",
+    "price": 499,
+    "totalSeats": 220,
+    "availableSeats": 220,
+    "organizer": "Valorant India"
+  },
+  {
+    "title": "BGMI LAN Clash",
+    "description": "Top squads battle live with on-site casting and meet-and-greet zones.",
+    "showType": "gaming",
+    "city": "Bengaluru",
+    "venue": "Bangalore Palace Grounds",
+    "venueId": "2922",
+    "startDateTime": "2026-04-16T15:30:00+05:30",
+    "endDateTime": "2026-04-16T20:30:00+05:30",
+    "price": 699,
+    "totalSeats": 260,
+    "availableSeats": 260,
+    "organizer": "Krafton Arena"
+  },
+  {
+    "title": "Console Carnival: FIFA & F1",
+    "description": "Head-to-head tournaments with pro tips, merch drops, and fan zones.",
+    "showType": "gaming",
+    "city": "Hyderabad",
+    "venue": "HITEX Exhibition Hall",
+    "venueId": "2923",
+    "startDateTime": "2026-04-25T12:00:00+05:30",
+    "endDateTime": "2026-04-25T19:00:00+05:30",
+    "price": 599,
+    "totalSeats": 200,
+    "availableSeats": 200,
+    "organizer": "PlayNation"
+  },
+  {
+    "title": "Indie Game Expo 2026",
+    "description": "Playable indie showcases, creator Q&A, and exclusive demos.",
+    "showType": "gaming",
+    "city": "Delhi",
+    "venue": "Pragati Maidan",
+    "venueId": "2924",
+    "startDateTime": "2026-05-02T11:00:00+05:30",
+    "endDateTime": "2026-05-02T18:30:00+05:30",
+    "price": 549,
+    "totalSeats": 240,
+    "availableSeats": 240,
+    "organizer": "IndieVerse"
+  }
+]
