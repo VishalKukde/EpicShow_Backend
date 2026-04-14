@@ -1,0 +1,17 @@
+name: Keep Backend Alive
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"   # runs every 14 minutes
+  workflow_dispatch:         # optional manual run
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          echo "🚀 Pinging backend..."
+          curl -s -o /dev/null -w "Status: %{http_code}\n" https://epicshow-backend.onrender.com/health
+          echo "✅ Done"
