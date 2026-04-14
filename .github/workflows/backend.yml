@@ -24,4 +24,7 @@ jobs:
         run: npm test || echo "No tests"
 
       - name: Trigger Render Deploy
-        run: curl ${{ secrets.RENDER_BACKEND_DEPLOY }}
+        run: |
+          echo "Triggering deploy..."
+          curl -X POST ${{ secrets.RENDER_BACKEND_DEPLOY }}
+          echo "Deploy triggered"
