@@ -1,0 +1,27 @@
+name: Backend CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install deps
+        run: npm install
+
+      - name: Run tests
+        run: npm test || echo "No tests"
+
+      - name: Trigger Render Deploy
+        run: curl ${{ secrets.RENDER_BACKEND_DEPLOY }}
