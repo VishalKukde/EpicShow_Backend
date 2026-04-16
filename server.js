@@ -1,6 +1,8 @@
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
+import { createServer } from "node:http";
+import { Server } from "socket.io";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 
@@ -21,6 +23,8 @@ import eventPaymentRoutes from "./modules/event/routes/payment.routes.js";
 import gamingRoutes from "./modules/gaming/routes/gaming.routes.js";
 import gamingBookingRoutes from "./modules/gaming/routes/booking.routes.js";
 import gamingPaymentRoutes from "./modules/gaming/routes/payment.routes.js";
+import chatRoutes from "./modules/chat/routes/chat.routes.js";
+import { initializeChatSocket } from "./modules/chat/socket/chat.socket.js";
 import errorHandler from "./middleware/error.middleware.js";
 
 dotenv.config();
@@ -59,14 +63,17 @@ function isPrivateLanOrigin(origin) {
   }
 }
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (!isProd && isPrivateLanOrigin(origin)) return true;
+  return false;
+}
+
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow server-to-server or curl requests with no Origin header.
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      // In non-production, allow LAN origins so mobile testing works without manual edits.
-      if (!isProd && isPrivateLanOrigin(origin)) return callback(null, true);
+      if (isAllowedOrigin(origin)) return callback(null, true);
       return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
@@ -113,11 +120,31 @@ app.use("/", paymentRoutes);
 app.use("/", bookingRoutes);
 app.use("/", walletRoutes);
 app.use("/tmdb", tmdbRoutes);
+app.use("/chat", chatRoutes);
 
 // Error handler (LAST)
 app.use(errorHandler);
 
-// Start server
-app.listen(port, "0.0.0.0", () => {
+// Wrap express for socket support.
+const server = createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      return callback(new Error(`Socket CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+  },
+});
+
+initializeChatSocket(io);
+
+server.listen(process.env.PORT || 5000, () => {
   console.log(`Server running at http://localhost:${port}`);
 });
+
+// Start server
+// app.listen(port, "0.0.0.0", () => {
+//   console.log(`Server running at http://localhost:${port}`);
+// });
