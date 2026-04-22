@@ -7,15 +7,88 @@ import RewardTransaction from "../../wallet/model/RewardTransaction.js";
 import { WalletTransaction } from "../../wallet/model/WalletTransaction.js";
 import { razorpay } from "../../../config/razorpay.js";
 import Event from "../models/Event.js";
+import {
+  createBookedSeatsForBooking,
+  ensureSeatsNotBooked,
+  finalizeSeatLocksAfterBooking,
+  resolveBookingShowId,
+  withPaymentIdempotency,
+} from "../../movies/services/booking-finalization.service.js";
+import { assertSeatLocksOwnedByUser } from "../../movies/services/seat-lock.service.js";
+import { buildShowId, normalizeString, toIdString } from "../../movies/utils/show.utils.js";
 
 const MIN_REWARD_POINTS_TO_ELIGIBLE = 150;
 const REWARD_REDEEM_POINTS = 100;
 const REWARD_REDEEM_DISCOUNT = 100;
 const REWARD_EARN_RATE = 0.1;
 
+const createHttpError = (message, statusCode) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const normalizeSeatIds = (seatIds = []) =>
+  Array.from(
+    new Set(
+      (Array.isArray(seatIds) ? seatIds : [])
+        .map((seatId) => normalizeString(seatId))
+        .filter(Boolean)
+    )
+  );
+
+const resolveEventShowContext = ({ movieId, eventId, itemId, cinemaId, showDate, showSlot }) => {
+  const resolvedItemId = toIdString(itemId || eventId || movieId);
+  const resolvedCinemaId = normalizeString(cinemaId);
+  const resolvedShowDate = normalizeString(showDate);
+  const resolvedShowSlot = normalizeString(showSlot);
+
+  return {
+    itemId: resolvedItemId,
+    cinemaId: resolvedCinemaId,
+    showDate: resolvedShowDate,
+    showSlot: resolvedShowSlot,
+    showId: buildShowId({
+      itemId: resolvedItemId,
+      cinemaId: resolvedCinemaId,
+      showDate: resolvedShowDate,
+      showSlot: resolvedShowSlot,
+    }),
+  };
+};
+
+const assertEventSeatsReadyForPayment = async ({ showId, seatIds, userId, session = null }) => {
+  const [availability, lockState] = await Promise.all([
+    ensureSeatsNotBooked({
+      showId,
+      seatIds,
+      session,
+    }),
+    assertSeatLocksOwnedByUser({
+      showId,
+      seatIds,
+      userId,
+    }),
+  ]);
+
+  if (!availability.available || !lockState.valid) {
+    throw createHttpError("Seat no longer available", 409);
+  }
+};
+
+const calculateEventTotal = (event, coupon) => {
+  let total = Number(event?.price || 0);
+
+  if (coupon && typeof coupon.off === "number") {
+    total -= coupon.off;
+  }
+
+  return Math.max(total, 0);
+};
+
 export const preparePayment = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.userId || req.body.user;
+    const userId = toIdString(req.user?.id || req.body.userId || req.body.user);
     const {
       movieId,
       eventId,
@@ -28,33 +101,42 @@ export const preparePayment = async (req, res) => {
       redeemReward = false,
     } = req.body;
 
-    const resolvedItemId = itemId || eventId || movieId;
+    const showContext = resolveEventShowContext({
+      movieId,
+      eventId,
+      itemId,
+      cinemaId,
+      showDate,
+      showSlot,
+    });
+    const normalizedSeatIds = normalizeSeatIds(seatIds);
 
     if (!userId) {
       return res.status(400).json({ message: "Missing user id" });
     }
 
-    if (!resolvedItemId || !cinemaId || !showDate || !showSlot) {
+    if (!showContext.showId || normalizedSeatIds.length === 0) {
       return res.status(400).json({ message: "Missing booking details" });
     }
 
     if (coupon && redeemReward) {
-      return res
-        .status(400)
-        .json({ message: "Coupon and reward redemption cannot be applied together" });
+      return res.status(400).json({
+        message: "Coupon and reward redemption cannot be applied together",
+      });
     }
 
-    const event = await Event.findById(resolvedItemId).select("price");
+    const event = await Event.findById(showContext.itemId).select("price");
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
     }
 
-    let total = Number(event.price || 0);
+    await assertEventSeatsReadyForPayment({
+      showId: showContext.showId,
+      seatIds: normalizedSeatIds,
+      userId,
+    });
 
-    if (coupon && typeof coupon.off === "number") {
-      total -= coupon.off;
-    }
-
+    let total = calculateEventTotal(event, coupon);
     let rewardDiscount = 0;
     let rewardPointsToRedeem = 0;
 
@@ -65,9 +147,9 @@ export const preparePayment = async (req, res) => {
       }
 
       if (user.rewardPoints < MIN_REWARD_POINTS_TO_ELIGIBLE) {
-        return res
-          .status(400)
-          .json({ message: "At least 150 reward points are required to redeem" });
+        return res.status(400).json({
+          message: "At least 150 reward points are required to redeem",
+        });
       }
 
       if (user.rewardPoints < REWARD_REDEEM_POINTS) {
@@ -76,31 +158,31 @@ export const preparePayment = async (req, res) => {
 
       rewardDiscount = REWARD_REDEEM_DISCOUNT;
       rewardPointsToRedeem = REWARD_REDEEM_POINTS;
-      total -= rewardDiscount;
-    }
-
-    if (total < 0) {
-      total = 0;
+      total = Math.max(total - rewardDiscount, 0);
     }
 
     res.json({
       finalAmount: total,
-      verifiedSeats: seatIds,
+      verifiedSeats: normalizedSeatIds,
       rewardDiscount,
       rewardPointsToRedeem,
+      showId: showContext.showId,
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Payment validation failed" });
+  } catch (error) {
+    console.error(error);
+    res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Payment validation failed",
+    });
   }
 };
 
 export const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
 
   try {
-    const userId = req.user?.id || req.body.userId || req.body.user;
+    session.startTransaction();
+
+    const userId = toIdString(req.user?.id || req.body.userId || req.body.user);
     const {
       movieId,
       eventId,
@@ -114,36 +196,41 @@ export const createOrder = async (req, res) => {
       redeemReward = false,
     } = req.body;
 
-    const resolvedItemId = itemId || eventId || movieId;
-    const resolvedShowType = showType || "event";
+    const showContext = resolveEventShowContext({
+      movieId,
+      eventId,
+      itemId,
+      cinemaId,
+      showDate,
+      showSlot,
+    });
+    const normalizedSeatIds = normalizeSeatIds(seatIds);
+    const resolvedShowType = normalizeString(showType) || "event";
 
-    if (!cinemaId || !resolvedItemId || !showDate || !showSlot || !userId) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: "Missing required fields" });
+    if (!showContext.showId || normalizedSeatIds.length === 0 || !userId) {
+      throw createHttpError("Missing required fields", 400);
     }
 
     if (coupon && redeemReward) {
-      await session.abortTransaction();
-      session.endSession();
-      return res
-        .status(400)
-        .json({ message: "Coupon and reward redemption cannot be applied together" });
+      throw createHttpError(
+        "Coupon and reward redemption cannot be applied together",
+        400
+      );
     }
 
-    const event = await Event.findById(resolvedItemId).select("price").session(session);
+    const event = await Event.findById(showContext.itemId).select("price").session(session);
     if (!event) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ message: "Event not found" });
+      throw createHttpError("Event not found", 404);
     }
 
-    let total = Number(event.price || 0);
+    await assertEventSeatsReadyForPayment({
+      showId: showContext.showId,
+      seatIds: normalizedSeatIds,
+      userId,
+      session,
+    });
 
-    if (coupon && typeof coupon.off === "number") {
-      total -= coupon.off;
-    }
-
+    let total = calculateEventTotal(event, coupon);
     let rewardDiscount = 0;
     let rewardPointsToRedeem = 0;
 
@@ -153,47 +240,35 @@ export const createOrder = async (req, res) => {
         .session(session);
 
       if (!rewardUser) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(404).json({ message: "User not found" });
+        throw createHttpError("User not found", 404);
       }
 
       if (rewardUser.rewardPoints < MIN_REWARD_POINTS_TO_ELIGIBLE) {
-        await session.abortTransaction();
-        session.endSession();
-        return res
-          .status(400)
-          .json({ message: "At least 150 reward points are required to redeem" });
+        throw createHttpError(
+          "At least 150 reward points are required to redeem",
+          400
+        );
       }
 
       rewardPointsToRedeem = REWARD_REDEEM_POINTS;
       rewardDiscount = REWARD_REDEEM_DISCOUNT;
-      total -= rewardDiscount;
-
-      if (total < 0) {
-        total = 0;
-      }
+      total = Math.max(total - rewardDiscount, 0);
 
       if (rewardUser.rewardPoints < rewardPointsToRedeem) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(400).json({ message: "Insufficient reward points" });
+        throw createHttpError("Insufficient reward points", 400);
       }
-    }
-
-    if (total < 0) {
-      total = 0;
     }
 
     const [createdBooking] = await Booking.create(
       [
         {
           userId,
-          itemId: resolvedItemId,
-          cinemaId,
-          date: showDate,
-          slot: showSlot,
-          seatIds,
+          itemId: showContext.itemId,
+          cinemaId: showContext.cinemaId,
+          date: showContext.showDate,
+          slot: showContext.showSlot,
+          showId: showContext.showId,
+          seatIds: normalizedSeatIds,
           amount: total,
           coupon: coupon ? coupon.code : null,
           showType: resolvedShowType,
@@ -217,7 +292,6 @@ export const createOrder = async (req, res) => {
     );
 
     await session.commitTransaction();
-    session.endSession();
 
     res.json({
       bookingId: createdBooking._id,
@@ -226,19 +300,23 @@ export const createOrder = async (req, res) => {
       currency: "INR",
       rewardDiscount,
       rewardPointsRedeemed: rewardPointsToRedeem,
+      showId: showContext.showId,
     });
-  } catch (err) {
-    await session.abortTransaction();
+  } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    console.error(error);
+    res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Order creation failed",
+    });
+  } finally {
     session.endSession();
-    console.error(err);
-    res.status(500).json({ message: "Order creation failed" });
   }
 };
 
 export const verifyPayment = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const {
       razorpay_order_id,
@@ -248,128 +326,201 @@ export const verifyPayment = async (req, res) => {
     } = req.body;
 
     const sign = razorpay_order_id + "|" + razorpay_payment_id;
-
     const expectedSign = crypto
       .createHmac("sha256", process.env.RAZORPAY_SECRET)
       .update(sign)
       .digest("hex");
 
     if (expectedSign !== razorpay_signature) {
-      await session.abortTransaction();
       return res.status(400).json({ message: "Invalid payment signature" });
     }
 
-    const booking = await Booking.findById(bookingId).session(session);
+    const result = await withPaymentIdempotency({
+      idempotencyKey: `event:razorpay:${razorpay_payment_id}`,
+      onConflict: async () => {
+        const existingBooking = await Booking.findById(bookingId)
+          .select("_id status paymentId")
+          .lean();
 
-    if (!booking) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: "Booking not found" });
-    }
+        if (existingBooking?.status === "paid") {
+          return {
+            success: true,
+            alreadyPaid: true,
+            bookingId: String(existingBooking._id),
+            paymentId: existingBooking.paymentId || razorpay_payment_id,
+            earnedPoints: 0,
+          };
+        }
 
-    if (booking.status === "paid") {
-      await session.abortTransaction();
-      return res.json({ success: true, message: "Already verified" });
-    }
+        throw createHttpError("Payment is already being processed", 409);
+      },
+      handler: async () => {
+        const session = await mongoose.startSession();
 
-    const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+        try {
+          session.startTransaction();
 
-    booking.status = "paid";
-    booking.paymentId = razorpay_payment_id;
-    await booking.save({ session });
+          const booking = await Booking.findById(bookingId).session(session);
+          if (!booking) {
+            throw createHttpError("Booking not found", 404);
+          }
 
-    const payment = new Payment({
-      bookingId: booking._id,
-      orderId: razorpay_order_id,
-      paymentId: razorpay_payment_id,
-      signature: razorpay_signature,
-      method: paymentDetails.method,
-      amount: booking.amount,
-      currency: paymentDetails.currency,
-      status: "success",
+          if (booking.status === "paid") {
+            await session.abortTransaction();
+            return {
+              success: true,
+              alreadyPaid: true,
+              bookingId: String(booking._id),
+              paymentId: booking.paymentId || razorpay_payment_id,
+              earnedPoints: 0,
+            };
+          }
+
+          if (booking.status !== "pending") {
+            throw createHttpError("Booking is not payable", 400);
+          }
+
+          const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+          const showId = booking.showId || resolveBookingShowId(booking);
+          const seatIds = normalizeSeatIds(booking.seatIds);
+
+          await assertEventSeatsReadyForPayment({
+            showId,
+            seatIds,
+            userId: booking.userId,
+            session,
+          });
+
+          booking.status = "paid";
+          booking.paymentId = razorpay_payment_id;
+          booking.showId = showId;
+          booking.seatIds = seatIds;
+          await booking.save({ session });
+
+          await createBookedSeatsForBooking({
+            booking,
+            paymentId: razorpay_payment_id,
+            showType: booking.showType || "event",
+            session,
+          });
+
+          const payment = new Payment({
+            bookingId: booking._id,
+            orderId: razorpay_order_id,
+            paymentId: razorpay_payment_id,
+            signature: razorpay_signature,
+            method: paymentDetails.method,
+            amount: booking.amount,
+            currency: paymentDetails.currency,
+            status: "success",
+          });
+
+          await payment.save({ session });
+
+          if (booking.rewardPointsRedeemed > 0) {
+            const rewardUser = await User.findOneAndUpdate(
+              {
+                _id: booking.userId,
+                rewardPoints: { $gte: booking.rewardPointsRedeemed },
+              },
+              { $inc: { rewardPoints: -booking.rewardPointsRedeemed } },
+              { new: true, session }
+            );
+
+            if (!rewardUser) {
+              throw createHttpError("Insufficient reward points at time of deduction", 409);
+            }
+
+            await RewardTransaction.create(
+              [
+                {
+                  user: booking.userId,
+                  type: "redeem",
+                  points: booking.rewardPointsRedeemed,
+                  balanceBefore: Number(
+                    (rewardUser.rewardPoints + booking.rewardPointsRedeemed).toFixed(2)
+                  ),
+                  balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
+                  bookingId: booking._id,
+                },
+              ],
+              { session }
+            );
+          }
+
+          const canEarnReward =
+            Number(booking.rewardPointsRedeemed || 0) === 0 &&
+            Number(booking.amount || 0) >= 450;
+          const earnedPoints = canEarnReward
+            ? Number((Number(booking.amount || 0) * REWARD_EARN_RATE).toFixed(2))
+            : 0;
+
+          if (earnedPoints > 0) {
+            const rewardUser = await User.findByIdAndUpdate(
+              booking.userId,
+              { $inc: { rewardPoints: earnedPoints } },
+              { new: true, session }
+            );
+
+            if (!rewardUser) {
+              throw createHttpError("User not found for reward credit", 404);
+            }
+
+            await RewardTransaction.create(
+              [
+                {
+                  user: booking.userId,
+                  type: "earn",
+                  points: earnedPoints,
+                  balanceBefore: Number(
+                    (rewardUser.rewardPoints - earnedPoints).toFixed(2)
+                  ),
+                  balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
+                  bookingId: booking._id,
+                },
+              ],
+              { session }
+            );
+          }
+
+          await session.commitTransaction();
+
+          try {
+            await finalizeSeatLocksAfterBooking({
+              showId,
+              seatIds,
+              bookingId: booking._id,
+              userId: booking.userId,
+            });
+          } catch (realtimeError) {
+            console.error("Post-event booking seat cleanup failed:", realtimeError);
+          }
+
+          return {
+            success: true,
+            bookingId: String(booking._id),
+            paymentId: razorpay_payment_id,
+            earnedPoints,
+            showId,
+          };
+        } catch (error) {
+          if (session.inTransaction()) {
+            await session.abortTransaction();
+          }
+
+          throw error;
+        } finally {
+          session.endSession();
+        }
+      },
     });
 
-    await payment.save({ session });
-
-    if (booking.rewardPointsRedeemed > 0) {
-      const rewardUser = await User.findOneAndUpdate(
-        {
-          _id: booking.userId,
-          rewardPoints: { $gte: booking.rewardPointsRedeemed },
-        },
-        { $inc: { rewardPoints: -booking.rewardPointsRedeemed } },
-        { new: true, session }
-      );
-
-      if (!rewardUser) {
-        await session.abortTransaction();
-        return res
-          .status(409)
-          .json({ message: "Insufficient reward points at time of deduction" });
-      }
-
-      await RewardTransaction.create(
-        [
-          {
-            user: booking.userId,
-            type: "redeem",
-            points: booking.rewardPointsRedeemed,
-            balanceBefore: Number(
-              (rewardUser.rewardPoints + booking.rewardPointsRedeemed).toFixed(2)
-            ),
-            balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
-            bookingId: booking._id,
-          },
-        ],
-        { session }
-      );
-    }
-
-    const canEarnReward =
-      Number(booking.rewardPointsRedeemed || 0) === 0 &&
-      Number(booking.amount || 0) >= 450;
-    const earnedPoints = canEarnReward
-      ? Number((Number(booking.amount || 0) * REWARD_EARN_RATE).toFixed(2))
-      : 0;
-
-    if (earnedPoints > 0) {
-      const rewardUser = await User.findByIdAndUpdate(
-        booking.userId,
-        { $inc: { rewardPoints: earnedPoints } },
-        { new: true, session }
-      );
-
-      if (!rewardUser) {
-        await session.abortTransaction();
-        return res.status(404).json({ message: "User not found for reward credit" });
-      }
-
-      await RewardTransaction.create(
-        [
-          {
-            user: booking.userId,
-            type: "earn",
-            points: earnedPoints,
-            balanceBefore: Number((rewardUser.rewardPoints - earnedPoints).toFixed(2)),
-            balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
-            bookingId: booking._id,
-          },
-        ],
-        { session }
-      );
-    }
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.json({
-      success: true,
-      earnedPoints,
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Payment verification failed",
     });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    console.error(err);
-    res.status(500).json({ message: "Payment verification failed" });
   }
 };
 
@@ -382,203 +533,262 @@ export const markPaymentFailed = async (req, res) => {
     });
 
     res.json({ success: true });
-  } catch (err) {
+  } catch (error) {
     res.status(500).json({ message: "Failed to update payment status" });
   }
 };
 
 export const payWithWallet = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    const userId = req.user?.id;
+    const userId = toIdString(req.user?.id);
     const { bookingId } = req.body;
 
     if (!userId || !bookingId) {
-      await session.abortTransaction();
       return res.status(400).json({ message: "Missing booking details" });
     }
 
-    const booking = await Booking.findOne({
-      _id: bookingId,
-      userId,
-    }).session(session);
+    const result = await withPaymentIdempotency({
+      idempotencyKey: `event:wallet:${bookingId}`,
+      onConflict: async () => {
+        const existingBooking = await Booking.findOne({
+          _id: bookingId,
+          userId,
+        })
+          .select("_id status paymentId")
+          .lean();
 
-    if (!booking) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: "Booking not found" });
-    }
+        if (existingBooking?.status === "paid") {
+          return {
+            success: true,
+            bookingId: String(existingBooking._id),
+            alreadyPaid: true,
+            paymentId: existingBooking.paymentId || null,
+            earnedPoints: 0,
+          };
+        }
 
-    if (booking.status === "paid") {
-      const existingPayment = await Payment.findOne({ bookingId: booking._id }).session(
-        session
-      );
-      await session.commitTransaction();
-      session.endSession();
-      return res.json({
-        success: true,
-        bookingId: booking._id,
-        alreadyPaid: true,
-        paymentId: existingPayment?.paymentId || null,
-        earnedPoints: 0,
-      });
-    }
+        throw createHttpError("Payment is already being processed", 409);
+      },
+      handler: async () => {
+        const session = await mongoose.startSession();
 
-    if (booking.status !== "pending") {
-      await session.abortTransaction();
-      return res.status(400).json({ message: "Booking is not payable" });
-    }
+        try {
+          session.startTransaction();
 
-    const amount = Number((booking.amount ?? 0).toFixed(2));
+          const booking = await Booking.findOne({
+            _id: bookingId,
+            userId,
+          }).session(session);
 
-    const user = await User.findById(userId).session(session);
-    if (!user) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: "User not found" });
-    }
+          if (!booking) {
+            throw createHttpError("Booking not found", 404);
+          }
 
-    const balanceBefore = Number((user.walletBalance ?? 0).toFixed(2));
-    if (amount > balanceBefore) {
-      await session.abortTransaction();
-      return res.status(400).json({ message: "Insufficient wallet balance" });
-    }
+          if (booking.status === "paid") {
+            const existingPayment = await Payment.findOne({
+              bookingId: booking._id,
+            }).session(session);
 
-    const balanceAfter = Number((balanceBefore - amount).toFixed(2));
+            await session.abortTransaction();
+            return {
+              success: true,
+              bookingId: String(booking._id),
+              alreadyPaid: true,
+              paymentId: existingPayment?.paymentId || booking.paymentId || null,
+              earnedPoints: 0,
+            };
+          }
 
-    if (amount > 0) {
-      const updatedUser = await User.findOneAndUpdate(
-        { _id: userId, walletBalance: { $gte: amount } },
-        { $inc: { walletBalance: -amount } },
-        { new: true, session }
-      );
+          if (booking.status !== "pending") {
+            throw createHttpError("Booking is not payable", 400);
+          }
 
-      if (!updatedUser) {
-        await session.abortTransaction();
-        return res.status(409).json({ message: "Unable to deduct wallet balance" });
-      }
-    }
+          const amount = Number((booking.amount ?? 0).toFixed(2));
+          const showId = booking.showId || resolveBookingShowId(booking);
+          const seatIds = normalizeSeatIds(booking.seatIds);
 
-    const paymentId = `${booking._id}_${Date.now()}`;
-    booking.status = "paid";
-    booking.paymentId = paymentId;
-    await booking.save({ session });
+          await assertEventSeatsReadyForPayment({
+            showId,
+            seatIds,
+            userId: booking.userId,
+            session,
+          });
 
-    const payment = new Payment({
-      bookingId: booking._id,
-      orderId: `wallet_order_${booking._id}`,
-      paymentId,
-      signature: "wallet",
-      method: "wallet",
-      amount,
-      currency: "INR",
-      status: "success",
-    });
+          const user = await User.findById(userId).session(session);
+          if (!user) {
+            throw createHttpError("User not found", 404);
+          }
 
-    await payment.save({ session });
+          const balanceBefore = Number((user.walletBalance ?? 0).toFixed(2));
+          if (amount > balanceBefore) {
+            throw createHttpError("Insufficient wallet balance", 400);
+          }
 
-    if (booking.rewardPointsRedeemed > 0) {
-      const rewardUser = await User.findOneAndUpdate(
-        {
-          _id: userId,
-          rewardPoints: { $gte: booking.rewardPointsRedeemed },
-        },
-        { $inc: { rewardPoints: -booking.rewardPointsRedeemed } },
-        { new: true, session }
-      );
+          const balanceAfter = Number((balanceBefore - amount).toFixed(2));
 
-      if (!rewardUser) {
-        await session.abortTransaction();
-        return res
-          .status(409)
-          .json({ message: "Insufficient reward points at time of deduction" });
-      }
+          if (amount > 0) {
+            const updatedUser = await User.findOneAndUpdate(
+              { _id: userId, walletBalance: { $gte: amount } },
+              { $inc: { walletBalance: -amount } },
+              { new: true, session }
+            );
 
-      await RewardTransaction.create(
-        [
-          {
-            user: userId,
-            type: "redeem",
-            points: booking.rewardPointsRedeemed,
-            balanceBefore: Number(
-              (rewardUser.rewardPoints + booking.rewardPointsRedeemed).toFixed(2)
-            ),
-            balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
+            if (!updatedUser) {
+              throw createHttpError("Unable to deduct wallet balance", 409);
+            }
+          }
+
+          const paymentId = `${booking._id}_${Date.now()}`;
+          booking.status = "paid";
+          booking.paymentId = paymentId;
+          booking.showId = showId;
+          booking.seatIds = seatIds;
+          await booking.save({ session });
+
+          await createBookedSeatsForBooking({
+            booking,
+            paymentId,
+            showType: booking.showType || "event",
+            session,
+          });
+
+          const payment = new Payment({
             bookingId: booking._id,
-          },
-        ],
-        { session }
-      );
-    }
-
-    const canEarnReward =
-      Number(booking.rewardPointsRedeemed || 0) === 0 &&
-      Number(booking.amount || 0) >= 450;
-    const earnedPoints = canEarnReward
-      ? Number((amount * REWARD_EARN_RATE).toFixed(2))
-      : 0;
-
-    if (earnedPoints > 0) {
-      const rewardUser = await User.findByIdAndUpdate(
-        userId,
-        { $inc: { rewardPoints: earnedPoints } },
-        { new: true, session }
-      );
-
-      if (!rewardUser) {
-        await session.abortTransaction();
-        return res.status(404).json({ message: "User not found for reward credit" });
-      }
-
-      await RewardTransaction.create(
-        [
-          {
-            user: userId,
-            type: "earn",
-            points: earnedPoints,
-            balanceBefore: Number((rewardUser.rewardPoints - earnedPoints).toFixed(2)),
-            balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
-            bookingId: booking._id,
-          },
-        ],
-        { session }
-      );
-    }
-
-    if (amount > 0) {
-      await WalletTransaction.create(
-        [
-          {
-            user: userId,
-            type: "debit",
-            source: "booking_payment",
+            orderId: `wallet_order_${booking._id}`,
+            paymentId,
+            signature: "wallet",
+            method: "wallet",
             amount,
-            balanceBefore,
-            balanceAfter,
+            currency: "INR",
             status: "success",
-            note: `Event booking payment (${booking._id})`,
-            booking: booking._id,
-            payment: payment._id,
-          },
-        ],
-        { session }
-      );
-    }
+          });
 
-    await session.commitTransaction();
-    session.endSession();
+          await payment.save({ session });
 
-    return res.json({
-      success: true,
-      bookingId: booking._id,
-      paymentId,
-      walletBalance: balanceAfter,
-      earnedPoints,
+          if (booking.rewardPointsRedeemed > 0) {
+            const rewardUser = await User.findOneAndUpdate(
+              {
+                _id: userId,
+                rewardPoints: { $gte: booking.rewardPointsRedeemed },
+              },
+              { $inc: { rewardPoints: -booking.rewardPointsRedeemed } },
+              { new: true, session }
+            );
+
+            if (!rewardUser) {
+              throw createHttpError("Insufficient reward points at time of deduction", 409);
+            }
+
+            await RewardTransaction.create(
+              [
+                {
+                  user: userId,
+                  type: "redeem",
+                  points: booking.rewardPointsRedeemed,
+                  balanceBefore: Number(
+                    (rewardUser.rewardPoints + booking.rewardPointsRedeemed).toFixed(2)
+                  ),
+                  balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
+                  bookingId: booking._id,
+                },
+              ],
+              { session }
+            );
+          }
+
+          const canEarnReward =
+            Number(booking.rewardPointsRedeemed || 0) === 0 &&
+            Number(booking.amount || 0) >= 450;
+          const earnedPoints = canEarnReward
+            ? Number((amount * REWARD_EARN_RATE).toFixed(2))
+            : 0;
+
+          if (earnedPoints > 0) {
+            const rewardUser = await User.findByIdAndUpdate(
+              userId,
+              { $inc: { rewardPoints: earnedPoints } },
+              { new: true, session }
+            );
+
+            if (!rewardUser) {
+              throw createHttpError("User not found for reward credit", 404);
+            }
+
+            await RewardTransaction.create(
+              [
+                {
+                  user: userId,
+                  type: "earn",
+                  points: earnedPoints,
+                  balanceBefore: Number(
+                    (rewardUser.rewardPoints - earnedPoints).toFixed(2)
+                  ),
+                  balanceAfter: Number(rewardUser.rewardPoints.toFixed(2)),
+                  bookingId: booking._id,
+                },
+              ],
+              { session }
+            );
+          }
+
+          if (amount > 0) {
+            await WalletTransaction.create(
+              [
+                {
+                  user: userId,
+                  type: "debit",
+                  source: "booking_payment",
+                  amount,
+                  balanceBefore,
+                  balanceAfter,
+                  status: "success",
+                  note: `Event booking payment (${booking._id})`,
+                  booking: booking._id,
+                  payment: payment._id,
+                },
+              ],
+              { session }
+            );
+          }
+
+          await session.commitTransaction();
+
+          try {
+            await finalizeSeatLocksAfterBooking({
+              showId,
+              seatIds,
+              bookingId: booking._id,
+              userId: booking.userId,
+            });
+          } catch (realtimeError) {
+            console.error("Post-event wallet seat cleanup failed:", realtimeError);
+          }
+
+          return {
+            success: true,
+            bookingId: String(booking._id),
+            paymentId,
+            walletBalance: balanceAfter,
+            earnedPoints,
+            showId,
+          };
+        } catch (error) {
+          if (session.inTransaction()) {
+            await session.abortTransaction();
+          }
+
+          throw error;
+        } finally {
+          session.endSession();
+        }
+      },
     });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    console.error(err);
-    return res.status(500).json({ message: "Wallet payment failed" });
+
+    return res.json(result);
+  } catch (error) {
+    console.error(error);
+    return res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Wallet payment failed",
+    });
   }
 };

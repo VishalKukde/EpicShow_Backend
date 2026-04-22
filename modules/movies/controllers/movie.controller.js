@@ -1,4 +1,73 @@
 import Movie from "../models/Movie.js";
+import { getRedisClient } from "../../../config/redis.js";
+
+const LATEST_RELEASES_CACHE_PREFIX = "movies:latest-releases";
+const LATEST_RELEASES_CACHE_TTL_SECONDS = Math.max(
+  Number(process.env.LATEST_RELEASES_CACHE_TTL_SECONDS) || 300,
+  30
+);
+
+const buildLatestReleasesCacheKey = (limit) =>
+  `${LATEST_RELEASES_CACHE_PREFIX}:limit:${limit}`;
+
+const loadLatestReleasesFromDb = (limit) =>
+  Movie.find({
+    releaseDate: { $exists: true, $ne: null },
+  })
+    .sort({ releaseDate: -1 })
+    .limit(limit)
+    .lean();
+
+const getLatestReleasesFromCache = async (limit) => {
+  if (!process.env.REDIS_URL) {
+    return null;
+  }
+
+  try {
+    const redis = await getRedisClient();
+    const cached = await redis.get(buildLatestReleasesCacheKey(limit));
+    return cached ? JSON.parse(cached) : null;
+  } catch (error) {
+    console.error("Failed to read latest releases cache:", error.message || error);
+    return null;
+  }
+};
+
+const setLatestReleasesCache = async (limit, movies) => {
+  if (!process.env.REDIS_URL) {
+    return;
+  }
+
+  try {
+    const redis = await getRedisClient();
+    await redis.set(buildLatestReleasesCacheKey(limit), JSON.stringify(movies), {
+      EX: LATEST_RELEASES_CACHE_TTL_SECONDS,
+    });
+  } catch (error) {
+    console.error("Failed to write latest releases cache:", error.message || error);
+  }
+};
+
+const invalidateLatestReleasesCache = async () => {
+  if (!process.env.REDIS_URL) {
+    return;
+  }
+
+  try {
+    const redis = await getRedisClient();
+    for await (const keys of redis.scanIterator({
+      MATCH: `${LATEST_RELEASES_CACHE_PREFIX}:*`,
+      COUNT: 50,
+    })) {
+      const keyBatch = Array.isArray(keys) ? keys : [keys];
+      if (keyBatch.length > 0) {
+        await redis.del(keyBatch);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to invalidate latest releases cache:", error.message || error);
+  }
+};
 
 export const getMovies = async (req, res) => {
   try {
@@ -12,11 +81,15 @@ export const getMovies = async (req, res) => {
 export const getLatestReleases = async (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 20);
-    const movies = await Movie.find({
-      releaseDate: { $exists: true, $ne: null },
-    })
-      .sort({ releaseDate: -1 })
-      .limit(limit);
+
+    const cachedMovies = await getLatestReleasesFromCache(limit);
+    if (cachedMovies) {
+      return res.json(cachedMovies);
+    }
+
+    const movies = await loadLatestReleasesFromDb(limit);
+    await setLatestReleasesCache(limit, movies);
+
     res.json(movies);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -109,6 +182,8 @@ export const createMovie = async (req, res) => {
     }
 
     const created = await Movie.insertMany(normalized, { ordered: true });
+    await invalidateLatestReleasesCache();
+
     return res.status(201).json(Array.isArray(payload) ? created : created[0]);
   } catch (err) {
     return res.status(500).json({ message: err.message || "Failed to create movie" });

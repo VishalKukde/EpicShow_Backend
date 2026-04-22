@@ -1,11 +1,11 @@
+import "dotenv/config"; // ✅ this runs BEFORE imports
+
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv";
-
 import moviesRoutes from "./modules/movies/routes/movie.routes.js";
 import userRoutes from "./modules/user/routes/user.routes.js";
 import authRoutes from "./modules/auth/routes/auth.routes.js";
@@ -25,9 +25,9 @@ import gamingBookingRoutes from "./modules/gaming/routes/booking.routes.js";
 import gamingPaymentRoutes from "./modules/gaming/routes/payment.routes.js";
 import chatRoutes from "./modules/chat/routes/chat.routes.js";
 import { initializeChatSocket } from "./modules/chat/socket/chat.socket.js";
+import { initializeShowSocket } from "./modules/movies/socket/show.socket.js";
 import errorHandler from "./middleware/error.middleware.js";
-
-dotenv.config();
+import { getRedisClient } from "./config/redis.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -38,6 +38,10 @@ mongoose
   .connect(MONGO_URIS)
   .then(() => console.log("Connected to MongoDB"))
   .catch((error) => console.error("Error connecting to MongoDB:", error));
+
+getRedisClient()
+  .then(() => console.log("Connected to Redis"))
+  .catch((error) => console.error("Error connecting to Redis:", error));
 
 // CORS
 const defaultOrigins = ["http://localhost:3000", "http://127.0.0.1:3000"];
@@ -139,6 +143,7 @@ const io = new Server(server, {
 });
 
 initializeChatSocket(io);
+initializeShowSocket(io);
 
 server.listen(process.env.PORT || 5000, () => {
   console.log(`Server running at http://localhost:${port}`);
