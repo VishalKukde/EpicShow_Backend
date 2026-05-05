@@ -3,11 +3,14 @@ import User from "../modules/user/model/User.js";
 
 export default async function requireAccessToken(req, res, next) {
   const authorization = req.headers.authorization || "";
-  if (!authorization.startsWith("Bearer ")) {
+  const token = authorization.startsWith("Bearer ")
+    ? authorization.split(" ")[1]
+    : req.cookies.accessToken;
+
+  if (!token) {
     return res.status(401).json({ message: "Access token required" });
   }
 
-  const token = authorization.split(" ")[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id);

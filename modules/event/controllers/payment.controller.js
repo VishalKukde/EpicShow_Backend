@@ -8,6 +8,10 @@ import { WalletTransaction } from "../../wallet/model/WalletTransaction.js";
 import { razorpay } from "../../../config/razorpay.js";
 import Event from "../models/Event.js";
 import {
+  markCollectedCouponUsed,
+  resolveCouponApplication,
+} from "../../offers/service/offers.service.js";
+import {
   createBookedSeatsForBooking,
   ensureSeatsNotBooked,
   finalizeSeatLocksAfterBooking,
@@ -76,15 +80,7 @@ const assertEventSeatsReadyForPayment = async ({ showId, seatIds, userId, sessio
   }
 };
 
-const calculateEventTotal = (event, coupon) => {
-  let total = Number(event?.price || 0);
-
-  if (coupon && typeof coupon.off === "number") {
-    total -= coupon.off;
-  }
-
-  return Math.max(total, 0);
-};
+const calculateEventTotal = (event) => Math.max(Number(event?.price || 0), 0);
 
 export const preparePayment = async (req, res) => {
   try {
@@ -136,9 +132,20 @@ export const preparePayment = async (req, res) => {
       userId,
     });
 
-    let total = calculateEventTotal(event, coupon);
+    let total = calculateEventTotal(event);
+    let couponApplication = null;
     let rewardDiscount = 0;
     let rewardPointsToRedeem = 0;
+
+    if (coupon) {
+      couponApplication = await resolveCouponApplication({
+        userId,
+        couponInput: coupon,
+        amount: total,
+        bookingType: "event",
+      });
+      total = Math.max(total - couponApplication.discountAmount, 0);
+    }
 
     if (redeemReward) {
       const user = await User.findById(userId).select("rewardPoints");
@@ -230,9 +237,21 @@ export const createOrder = async (req, res) => {
       session,
     });
 
-    let total = calculateEventTotal(event, coupon);
+    let total = calculateEventTotal(event);
+    let couponApplication = null;
     let rewardDiscount = 0;
     let rewardPointsToRedeem = 0;
+
+    if (coupon) {
+      couponApplication = await resolveCouponApplication({
+        userId,
+        couponInput: coupon,
+        amount: total,
+        bookingType: "event",
+        session,
+      });
+      total = Math.max(total - couponApplication.discountAmount, 0);
+    }
 
     if (redeemReward) {
       const rewardUser = await User.findById(userId)
@@ -270,7 +289,10 @@ export const createOrder = async (req, res) => {
           showId: showContext.showId,
           seatIds: normalizedSeatIds,
           amount: total,
-          coupon: coupon ? coupon.code : null,
+          coupon: couponApplication ? couponApplication.code : null,
+          couponId: couponApplication ? couponApplication.couponId : null,
+          userCouponId: couponApplication ? couponApplication.userCouponId : null,
+          couponDiscount: couponApplication ? couponApplication.discountAmount : 0,
           showType: resolvedShowType,
           rewardPointsRedeemed: rewardPointsToRedeem,
           rewardDiscount,
@@ -416,6 +438,15 @@ export const verifyPayment = async (req, res) => {
           });
 
           await payment.save({ session });
+
+          if (booking.userCouponId) {
+            await markCollectedCouponUsed({
+              userId: booking.userId,
+              userCouponId: booking.userCouponId,
+              bookingId: booking._id,
+              session,
+            });
+          }
 
           if (booking.rewardPointsRedeemed > 0) {
             const rewardUser = await User.findOneAndUpdate(
@@ -664,6 +695,15 @@ export const payWithWallet = async (req, res) => {
           });
 
           await payment.save({ session });
+
+          if (booking.userCouponId) {
+            await markCollectedCouponUsed({
+              userId,
+              userCouponId: booking.userCouponId,
+              bookingId: booking._id,
+              session,
+            });
+          }
 
           if (booking.rewardPointsRedeemed > 0) {
             const rewardUser = await User.findOneAndUpdate(

@@ -24,6 +24,10 @@ import gamingRoutes from "./modules/gaming/routes/gaming.routes.js";
 import gamingBookingRoutes from "./modules/gaming/routes/booking.routes.js";
 import gamingPaymentRoutes from "./modules/gaming/routes/payment.routes.js";
 import chatRoutes from "./modules/chat/routes/chat.routes.js";
+import offersRoutes from "./modules/offers/routes/offers.routes.js";
+import adminRoutes from "./modules/admin/routes/admin.routes.js";
+import feedbackRoutes from "./modules/feedback/routes/feedback.routes.js";
+import notificationRoutes from "./modules/notifications/routes/notification.routes.js";
 import { initializeChatSocket } from "./modules/chat/socket/chat.socket.js";
 import { initializeShowSocket } from "./modules/movies/socket/show.socket.js";
 import errorHandler from "./middleware/error.middleware.js";
@@ -32,6 +36,8 @@ import { getRedisClient } from "./config/redis.js";
 const app = express();
 const port = process.env.PORT || 5000;
 const MONGO_URIS = process.env.MONGO_URI;
+
+app.set("trust proxy", 1);
 
 // Connect to MongoDB
 mongoose
@@ -123,8 +129,12 @@ app.use("/", seatRoutes);
 app.use("/", paymentRoutes);
 app.use("/", bookingRoutes);
 app.use("/", walletRoutes);
+app.use("/", notificationRoutes);
+app.use("/", offersRoutes);
+app.use("/", feedbackRoutes);
 app.use("/tmdb", tmdbRoutes);
 app.use("/chat", chatRoutes);
+app.use("/admin", adminRoutes);
 
 // Error handler (LAST)
 app.use(errorHandler);

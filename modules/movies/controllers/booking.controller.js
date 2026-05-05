@@ -2,6 +2,7 @@ import Booking from "../models/Booking.js";
 import Payment from "../models/Payment.js";
 import {parseShowDateTime} from "../../../utils/Helper.js"
 import Movie from "../models/Movie.js";
+import mongoose from "mongoose";
 
 export const getBooking = async (req, res) => {
   try {
@@ -56,12 +57,14 @@ export const getAllMovieBookings = async (req, res) => {
       : Math.min(parsedLimit, 50);
     const usePagination = limit > 0;
     const skip = usePagination ? (page - 1) * limit : 0;
+    const reviewableStatuses = ["paid", "expired", "booked", "BOOKED"];
 
     const basePipeline = [
       { $match: { userId: req.user.id } },
       { $match: { showType: "movie" } },
       {
         $addFields: {
+          bookingStatusRaw: "$status",
           itemId: { $toObjectId: "$itemId" },
         },
       },
@@ -149,12 +152,56 @@ export const getAllMovieBookings = async (req, res) => {
         },
       },
 
-      // ⭐ Expire logic
+      {
+        $lookup: {
+          from: "reviews",
+          let: { bookingId: { $toString: "$_id" } },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $eq: ["$booking_id", "$$bookingId"],
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                rating: 1,
+                created_at: 1,
+              },
+            },
+          ],
+          as: "reviewDocs",
+        },
+      },
+
+      // ⭐ Expire logic + review actions
       {
         $addFields: {
+          showTime: "$showDateTime",
+          showTimePassed: { $lt: ["$showDateTime", "$$NOW"] },
+          reviewSubmitted: {
+            $gt: [{ $size: "$reviewDocs" }, 0],
+          },
+          reviewId: {
+            $ifNull: [{ $arrayElemAt: ["$reviewDocs._id", 0] }, null],
+          },
+          canReview: {
+            $and: [
+              { $lt: ["$showDateTime", "$$NOW"] },
+              { $in: ["$bookingStatusRaw", reviewableStatuses] },
+              { $eq: [{ $size: "$reviewDocs" }, 0] },
+            ],
+          },
           status: {
             $cond: [
-              { $lt: ["$showDateTime", "$$NOW"] },
+              {
+                $and: [
+                  { $lt: ["$showDateTime", "$$NOW"] },
+                  { $in: ["$bookingStatusRaw", ["pending", "paid"]] },
+                ],
+              },
               "expired",
               "$status",
             ],
@@ -169,6 +216,8 @@ export const getAllMovieBookings = async (req, res) => {
           period: 0,
           hour24: 0,
           showDateTime: 0,
+          reviewDocs: 0,
+          bookingStatusRaw: 0,
         },
       },
     ];
@@ -223,6 +272,10 @@ export const getAllMovieBookings = async (req, res) => {
 
 // Cancelled Booking 
 export const cancelBooking = async (req, res) => {
+
+  const session = await mongoose.startSession();
+session.startTransaction();
+
   try {
     const userId = req.user.id;
     const bookingId = req.params.id;
@@ -259,9 +312,28 @@ export const cancelBooking = async (req, res) => {
       })
     }
 
-    // ✅ Update status
-    booking.status = "cancelled"
-    await booking.save()
+    const payment = await Payment.findOne({
+      bookingId: booking._id,
+    });
+
+    if (!payment) {
+    await session.abortTransaction();
+    session.endSession();
+    return res.status(404).json({
+      success: false,
+      message: "Payment not found",
+    });
+  }
+
+   booking.status = "cancelled";
+  await booking.save({ session });
+
+  payment.status = "refund_initiated";
+  await payment.save({ session });
+
+  // ✅ Commit only if BOTH succeed
+  await session.commitTransaction();
+  session.endSession();
 
     return res.status(200).json({
       success: true,

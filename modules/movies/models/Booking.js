@@ -14,6 +14,19 @@ const BookingSchema = new mongoose.Schema({
   seatIds: [String],
   amount: Number,
   coupon: String,
+  couponId: {
+    type: String,
+    default: null,
+  },
+  userCouponId: {
+    type: String,
+    default: null,
+  },
+  couponDiscount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
   paymentId: {
     type: String,
     trim: true,
@@ -37,7 +50,7 @@ const BookingSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["pending", "paid", "failed", "cancelled", "refunded", "expired"],
+    enum: ["pending", "paid", "failed", "cancelled", "expired"],
     default: "pending"
   },
 

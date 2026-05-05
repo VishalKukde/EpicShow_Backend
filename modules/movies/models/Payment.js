@@ -39,9 +39,10 @@ const PaymentSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["success", "failed"],
+    enum: ["success", "failed", "refunded","refund_initiated"],
     required: true
-  }
+  },
+    refundId: { type: String},
 
 }, { timestamps: true });
 

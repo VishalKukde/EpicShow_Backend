@@ -31,7 +31,7 @@ const authenticateViaRefreshToken = async (req, res, next) => {
 };
 
 const authMiddleware = async (req, res, next) => {
-  let token;
+  let token = req.cookies.accessToken;
 
   // 1️⃣ Try access token first
   if (req.headers.authorization?.startsWith("Bearer ")) {

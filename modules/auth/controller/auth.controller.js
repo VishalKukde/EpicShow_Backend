@@ -8,6 +8,22 @@ import User from "../../user/model/User.js";
 
 dotenv.config();
 const isProd = process.env.NODE_ENV === "production";
+const accessMaxAge = 15 * 60 * 1000; // 15 minutes
+
+const isHttpsRequest = (req) =>
+    req.secure || req.headers["x-forwarded-proto"] === "https";
+
+const cookieOptions = (req, maxAge) => {
+    const isHttps = isHttpsRequest(req);
+
+    return {
+        httpOnly: true,
+        secure: isHttps,
+        sameSite: isProd && isHttps ? "none" : "lax",
+        path: "/",
+        ...(maxAge ? { maxAge } : {}),
+    };
+};
 
 export const register = asyncHandler(async (req, res) => {
     await User.create(req.body)
@@ -31,7 +47,7 @@ export const login = asyncHandler(async (req, res) => {
         return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const accessToken = generateAccessToken(user)
+    const accessToken = generateAccessToken(user, "15m")
     const remember = Boolean(rememberMe);
     const refreshToken = generateRefreshToken(user, remember ? "7d" : "1d")
 
@@ -41,18 +57,14 @@ export const login = asyncHandler(async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    res.cookie("accessToken", accessToken, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: "lax",
-    });
+    // Refresh token it depends on remember me
+    const refreshMaxAge = remember
+        ? 7 * 24 * 60 * 60 * 1000 // 7 days
+        : 24 * 60 * 60 * 1000;    // 1 day
 
-    res.cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: "lax",
-        ...(remember ? { maxAge: 7 * 24 * 60 * 60 * 1000 } : {}),
-    });
+    res.cookie("accessToken", accessToken, cookieOptions(req, accessMaxAge));
+
+    res.cookie("refreshToken", refreshToken, cookieOptions(req, refreshMaxAge));
 
     res.json({
         accessToken,
@@ -98,6 +110,8 @@ export const refresh = asyncHandler(async (req, res) => {
 
     const newAccessToken = generateAccessToken(user);
 
+    res.cookie("accessToken", newAccessToken, cookieOptions(req, accessMaxAge));
+
     res.json({
         accessToken: newAccessToken,
         user: {
@@ -128,7 +142,8 @@ export const logout = asyncHandler(async (req, res) => {
         }
     }
 
-    res.clearCookie("refreshToken");
+    res.clearCookie("accessToken", cookieOptions(req));
+    res.clearCookie("refreshToken", cookieOptions(req));
     res.json({ message: "Logged out" });
 });
 
@@ -186,7 +201,8 @@ export const changePassword = asyncHandler(async (req, res) => {
         }
     );
 
-    res.clearCookie("refreshToken");
+    res.clearCookie("accessToken", cookieOptions(req));
+    res.clearCookie("refreshToken", cookieOptions(req));
 
     // Fire-and-forget notification; password change should not fail if mail provider is unavailable.
     sendPasswordChangedEmail({

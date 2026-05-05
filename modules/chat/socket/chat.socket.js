@@ -79,6 +79,17 @@ export const emitConversationCleared = (payload = {}) => {
     .emit("chat:conversation:cleared", eventPayload);
 };
 
+export const emitUserNotification = (userId, payload = {}) => {
+  if (!chatIo) return;
+
+  const targetUserId = toIdString(userId);
+  if (!targetUserId || !payload?.id) return;
+
+  chatIo
+    .to(`${USER_ROOM_PREFIX}${targetUserId}`)
+    .emit("notification:new", payload);
+};
+
 export const initializeChatSocket = (io) => {
   chatIo = io;
 

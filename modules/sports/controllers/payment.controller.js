@@ -6,6 +6,10 @@ import User from "../../user/model/User.js";
 import RewardTransaction from "../../wallet/model/RewardTransaction.js";
 import { WalletTransaction } from "../../wallet/model/WalletTransaction.js";
 import { razorpay } from "../../../config/razorpay.js";
+import {
+  markCollectedCouponUsed,
+  resolveCouponApplication,
+} from "../../offers/service/offers.service.js";
 
 const MIN_REWARD_POINTS_TO_ELIGIBLE = 150;
 const REWARD_REDEEM_POINTS = 100;
@@ -56,9 +60,16 @@ export const preparePayment = async (req, res) => {
     }
 
     let total = baseAmount;
+    let couponApplication = null;
 
-    if (coupon && typeof coupon.off === "number") {
-      total -= coupon.off;
+    if (coupon) {
+      couponApplication = await resolveCouponApplication({
+        userId,
+        couponInput: coupon,
+        amount: total,
+        bookingType: "sport",
+      });
+      total -= couponApplication.discountAmount;
     }
 
     let rewardDiscount = 0;
@@ -97,7 +108,9 @@ export const preparePayment = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Payment validation failed" });
+    res.status(err.statusCode || 500).json({
+      message: err.statusCode ? err.message : "Payment validation failed",
+    });
   }
 };
 
@@ -159,9 +172,17 @@ export const createOrder = async (req, res) => {
     }
 
     let total = baseAmount;
+    let couponApplication = null;
 
-    if (coupon && typeof coupon.off === "number") {
-      total -= coupon.off;
+    if (coupon) {
+      couponApplication = await resolveCouponApplication({
+        userId,
+        couponInput: coupon,
+        amount: total,
+        bookingType: "sport",
+        session,
+      });
+      total -= couponApplication.discountAmount;
     }
 
     let rewardDiscount = 0;
@@ -233,7 +254,10 @@ export const createOrder = async (req, res) => {
           seatIds,
           amount: total,
           currency: "INR",
-          coupon: coupon ? coupon.code : null,
+          coupon: couponApplication ? couponApplication.code : null,
+          couponId: couponApplication ? couponApplication.couponId : null,
+          userCouponId: couponApplication ? couponApplication.userCouponId : null,
+          couponDiscount: couponApplication ? couponApplication.discountAmount : 0,
           rewardPointsRedeemed: rewardPointsToRedeem,
           rewardDiscount,
         },
@@ -268,7 +292,9 @@ export const createOrder = async (req, res) => {
     await session.abortTransaction();
     session.endSession();
     console.error(err);
-    res.status(500).json({ message: "Order creation failed" });
+    res.status(err.statusCode || 500).json({
+      message: err.statusCode ? err.message : "Order creation failed",
+    });
   }
 };
 
@@ -326,6 +352,15 @@ export const verifyPayment = async (req, res) => {
     });
 
     await payment.save({ session });
+
+    if (booking.userCouponId) {
+      await markCollectedCouponUsed({
+        userId: booking.userId,
+        userCouponId: booking.userCouponId,
+        bookingId: booking._id,
+        session,
+      });
+    }
 
     if (booking.rewardPointsRedeemed > 0) {
       const rewardUser = await User.findOneAndUpdate(
@@ -407,7 +442,9 @@ export const verifyPayment = async (req, res) => {
     session.endSession();
 
     console.error(err);
-    res.status(500).json({ message: "Payment verification failed" });
+    res.status(err.statusCode || 500).json({
+      message: err.statusCode ? err.message : "Payment verification failed",
+    });
   }
 };
 
@@ -516,6 +553,15 @@ export const payWithWallet = async (req, res) => {
 
     await payment.save({ session });
 
+    if (booking.userCouponId) {
+      await markCollectedCouponUsed({
+        userId,
+        userCouponId: booking.userCouponId,
+        bookingId: booking._id,
+        session,
+      });
+    }
+
     if (booking.rewardPointsRedeemed > 0) {
       const rewardUser = await User.findOneAndUpdate(
         {
@@ -618,6 +664,8 @@ export const payWithWallet = async (req, res) => {
     await session.abortTransaction();
     session.endSession();
     console.error(err);
-    return res.status(500).json({ message: "Wallet payment failed" });
+    return res.status(err.statusCode || 500).json({
+      message: err.statusCode ? err.message : "Wallet payment failed",
+    });
   }
 };

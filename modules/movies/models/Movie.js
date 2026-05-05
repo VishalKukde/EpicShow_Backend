@@ -39,6 +39,18 @@ const movieSchema = new Schema(
       required:true
     },
 
+    avg_rating: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    total_reviews: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     releaseDate: {
       type: Date
     }

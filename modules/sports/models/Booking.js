@@ -57,6 +57,21 @@ const sportBookingSchema = new mongoose.Schema(
       default: null,
       trim: true,
     },
+    couponId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    userCouponId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    couponDiscount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     rewardPointsRedeemed: {
       type: Number,
       default: 0,

@@ -13,6 +13,10 @@ import ExportLog from "../models/ExportLog.js";
 import { WalletTransaction } from "../../wallet/model/WalletTransaction.js";
 import { razorpay } from "../../../config/razorpay.js";
 import {
+  markCollectedCouponUsed,
+  resolveCouponApplication,
+} from "../../offers/service/offers.service.js";
+import {
   createBookedSeatsForBooking,
   ensureSeatsNotBooked,
   finalizeSeatLocksAfterBooking,
@@ -78,6 +82,35 @@ const createHttpError = (message, statusCode) => {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+};
+
+const markBookingFailedAfterVerifiedPayment = async ({ bookingId, paymentId }) => {
+  try {
+    await Booking.findOneAndUpdate(
+      {
+        _id: bookingId,
+        $or: [
+          { status: "pending" },
+          { status: "paid", paymentId },
+        ],
+      },
+      {
+        $set: {
+          status: "failed",
+          paymentId: null,
+        },
+      }
+    );
+
+    if (paymentId) {
+      await Payment.deleteOne({
+        bookingId,
+        paymentId,
+      });
+    }
+  } catch (cleanupError) {
+    console.error("Failed to mark booking failed after payment error:", cleanupError);
+  }
 };
 
 const normalizeSeatIds = (seatIds = []) =>
@@ -196,6 +229,7 @@ export const preparePayment = async (req, res) => {
     });
 
     let total = calculateMovieSeatTotal(cinema, normalizedSeatIds);
+    let couponApplication = null;
 
     if (coupon && redeemReward) {
       return res
@@ -203,8 +237,15 @@ export const preparePayment = async (req, res) => {
         .json({ message: "Coupon and reward redemption cannot be applied together" });
     }
 
-    if (coupon && typeof coupon.off === "number") {
-      total -= coupon.off;
+    console.log(coupon);
+    if (coupon) {
+      couponApplication = await resolveCouponApplication({
+        userId,
+        couponInput: coupon,
+        amount: total,
+        bookingType: "movie",
+      });
+      total -= couponApplication.discountAmount;
     }
 
     let rewardDiscount = 0;
@@ -303,9 +344,17 @@ export const createOrder = async (req, res) => {
     }
 
     let total = calculateMovieSeatTotal(cinema, normalizedSeatIds);
+    let couponApplication = null;
 
-    if (coupon && typeof coupon.off === "number") {
-      total -= coupon.off;
+    if (coupon) {
+      couponApplication = await resolveCouponApplication({
+        userId,
+        couponInput: coupon,
+        amount: total,
+        bookingType: "movie",
+        session,
+      });
+      total -= couponApplication.discountAmount;
     }
 
     let rewardDiscount = 0;
@@ -355,7 +404,10 @@ export const createOrder = async (req, res) => {
           showId: showContext.showId,
           seatIds: normalizedSeatIds,
           amount: total,
-          coupon: coupon ? coupon.code : null,
+          coupon: couponApplication ? couponApplication.code : null,
+          couponId: couponApplication ? couponApplication.couponId : null,
+          userCouponId: couponApplication ? couponApplication.userCouponId : null,
+          couponDiscount: couponApplication ? couponApplication.discountAmount : 0,
           showType: showType || "movie",
           rewardPointsRedeemed: rewardPointsToRedeem,
           rewardDiscount,
@@ -443,6 +495,7 @@ export const verifyPayment = async (req, res) => {
       },
       handler: async () => {
         const session = await mongoose.startSession();
+        let shouldFailBookingAfterAbort = false;
 
         try {
           session.startTransaction();
@@ -469,6 +522,7 @@ export const verifyPayment = async (req, res) => {
           }
 
           const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+          shouldFailBookingAfterAbort = true;
           const showId = booking.showId || resolveBookingShowId(booking);
           const seatIds = normalizeSeatIds(booking.seatIds);
           const { valid } = await assertMovieSeatLocksAreStillValid({
@@ -516,6 +570,15 @@ export const verifyPayment = async (req, res) => {
           });
 
           await payment.save({ session });
+
+          if (booking.userCouponId) {
+            await markCollectedCouponUsed({
+              userId: booking.userId,
+              couponId: booking.userCouponId,
+              bookingId: booking._id,
+              session,
+            });
+          }
 
           if (booking.rewardPointsRedeemed > 0) {
             const rewardUser = await User.findOneAndUpdate(
@@ -606,6 +669,13 @@ export const verifyPayment = async (req, res) => {
         } catch (error) {
           if (session.inTransaction()) {
             await session.abortTransaction();
+          }
+
+          if (shouldFailBookingAfterAbort) {
+            await markBookingFailedAfterVerifiedPayment({
+              bookingId,
+              paymentId: razorpay_payment_id,
+            });
           }
 
           throw error;
@@ -780,6 +850,15 @@ export const payWithWallet = async (req, res) => {
           });
 
           await payment.save({ session });
+
+          if (booking.userCouponId) {
+            await markCollectedCouponUsed({
+              userId,
+              userCouponId: booking.userCouponId,
+              bookingId: booking._id,
+              session,
+            });
+          }
 
           if (booking.rewardPointsRedeemed > 0) {
             const rewardUser = await User.findOneAndUpdate(
