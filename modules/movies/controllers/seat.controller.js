@@ -8,6 +8,7 @@ import {
 } from "../services/seat-lock.service.js";
 import { emitSeatLocked, emitSeatUnlocked } from "../socket/show.socket.js";
 import { buildShowId, normalizeString, toIdString } from "../utils/show.utils.js";
+import { getTicketLimitForMembership } from "../../subscription/service/pro-perks.service.js";
 
 const PREMIUM_ROWS = new Set(["H", "I", "J"]);
 
@@ -124,6 +125,31 @@ export const lockSeat = async (req, res) => {
       return res.status(400).json({ message: "Missing data" });
     }
 
+    const cinema = await Seat.findOne({ cinemaId: showContext.cinemaId }).lean();
+    if (!cinema) {
+      return res.status(404).json({ message: "Cinema not found" });
+    }
+
+    const allSeatIds = cinema.seats.flatMap((row) =>
+      row.seats.map((seat) => normalizeString(seat.seatId))
+    );
+    const lockOwners = await getSeatLockOwners({
+      showId: showContext.showId,
+      seatIds: allSeatIds,
+    });
+    const currentLockedCount = allSeatIds.filter(
+      (seatId) => lockOwners.get(seatId) === userId
+    ).length;
+    const alreadyHeldByUser = lockOwners.get(normalizedSeatId) === userId;
+    const ticketLimit = getTicketLimitForMembership(req.user?.membership);
+
+    if (!alreadyHeldByUser && currentLockedCount >= ticketLimit) {
+      return res.status(400).json({
+        message: `You can select a maximum of ${ticketLimit} seats with your current plan.`,
+        ticketLimit,
+      });
+    }
+
     const alreadyBooked = await BookedSeat.exists({
       showId: showContext.showId,
       seatId: normalizedSeatId,
@@ -137,6 +163,7 @@ export const lockSeat = async (req, res) => {
       showId: showContext.showId,
       seatId: normalizedSeatId,
       userId,
+      membership: req.user?.membership,
     });
 
     if (!lockResult.acquired) {
@@ -169,6 +196,7 @@ export const lockSeat = async (req, res) => {
       showId: showContext.showId,
       expireAt: lockResult.expireAt,
       seatIds: [normalizedSeatId],
+      ticketLimit,
     });
   } catch (error) {
     console.error(error);

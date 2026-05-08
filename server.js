@@ -32,6 +32,10 @@ import { initializeChatSocket } from "./modules/chat/socket/chat.socket.js";
 import { initializeShowSocket } from "./modules/movies/socket/show.socket.js";
 import errorHandler from "./middleware/error.middleware.js";
 import { getRedisClient } from "./config/redis.js";
+import refundRoutes from "./modules/refunds/routes/refund.routes.js" 
+import subscriptionRoutes from "./modules/subscription/routes/subscription.routes.js";
+import { handleRazorpaySubscriptionWebhook } from "./modules/subscription/controller/subscription.controller.js";
+import { startSubscriptionExpiryJob } from "./modules/subscription/jobs/subscription-expiry.job.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -96,6 +100,12 @@ app.use((req, res, next) => {
   next();
 });
 
+app.post(
+  "/subscription/webhook",
+  express.raw({ type: "application/json" }),
+  handleRazorpaySubscriptionWebhook
+);
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
@@ -132,9 +142,11 @@ app.use("/", walletRoutes);
 app.use("/", notificationRoutes);
 app.use("/", offersRoutes);
 app.use("/", feedbackRoutes);
+app.use("/", subscriptionRoutes);
 app.use("/tmdb", tmdbRoutes);
 app.use("/chat", chatRoutes);
 app.use("/admin", adminRoutes);
+app.use("/refunds", refundRoutes);
 
 // Error handler (LAST)
 app.use(errorHandler);
@@ -157,6 +169,7 @@ initializeShowSocket(io);
 
 server.listen(process.env.PORT || 5000, () => {
   console.log(`Server running at http://localhost:${port}`);
+  startSubscriptionExpiryJob();
 });
 
 // Start server

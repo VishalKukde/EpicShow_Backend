@@ -53,6 +53,47 @@ const userSchema = new mongoose.Schema(
     preferences: {
       darkMode: { type: Boolean, default: false },
       notifications: { type: Boolean, default: false },
+      seat: {
+        movieSeat: {
+          type: String,
+          enum: ["front", "middle", "back"],
+          default: "middle",
+        },
+        sportSeat: {
+          type: String,
+          enum: ["field_side", "center_view", "covered_upper"],
+          default: "center_view",
+        },
+        trainSeat: {
+          type: String,
+          enum: ["window", "lower_berth", "aisle"],
+          default: "window",
+        },
+        flightSeat: {
+          type: String,
+          enum: ["window", "aisle", "extra_legroom"],
+          default: "window",
+        },
+      },
+      payment: {
+        preferredMethod: {
+          type: String,
+          enum: ["card", "upi", "wallet"],
+          default: "card",
+        },
+
+        lastUsedMethod: {
+          type: String,
+          enum: ["card", "upi", "wallet"],
+          default: "card",
+        },
+
+        disabledMethods: {
+          card: { type: Boolean, default: false },
+          upi: {type: Boolean, default: false},
+          wallet: {type: Boolean, default: false},
+        },
+      }
     },
 
     rewardPoints: {

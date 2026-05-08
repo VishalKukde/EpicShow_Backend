@@ -1,5 +1,13 @@
 import User from "../model/User.js";
 
+const PAYMENT_METHODS = ["card", "upi", "wallet"];
+const SEAT_PREFERENCES = {
+  movieSeat: ["front", "middle", "back"],
+  sportSeat: ["field_side", "center_view", "covered_upper"],
+  trainSeat: ["window", "lower_berth", "aisle"],
+  flightSeat: ["window", "aisle", "extra_legroom"],
+};
+
 function serializeUser(user) {
   return {
     id: user._id,
@@ -86,6 +94,86 @@ export const updateProfile = async (req, res) => {
           return res.status(400).json({ message: "notifications must be a boolean" });
         }
         updates["preferences.notifications"] = preferences.notifications;
+      }
+
+      if (preferences.seat !== undefined) {
+        if (typeof preferences.seat !== "object" || preferences.seat === null) {
+          return res.status(400).json({ message: "Invalid seat preferences payload" });
+        }
+
+        for (const [field, allowedValues] of Object.entries(SEAT_PREFERENCES)) {
+          const value = preferences.seat[field];
+          if (value !== undefined) {
+            if (!allowedValues.includes(value)) {
+              return res.status(400).json({ message: `Unsupported ${field} preference` });
+            }
+            updates[`preferences.seat.${field}`] = value;
+          }
+        }
+      }
+
+      if (preferences.payment !== undefined) {
+        if (typeof preferences.payment !== "object" || preferences.payment === null) {
+          return res.status(400).json({ message: "Invalid payment preferences payload" });
+        }
+
+        const currentUser = await User.findById(userId).select("preferences.payment");
+        if (!currentUser) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        const currentPayment = currentUser.preferences?.payment || {};
+        const nextPreferredMethod =
+          preferences.payment.preferredMethod ?? currentPayment.preferredMethod ?? "card";
+        const nextDisabledMethods = {
+          card: Boolean(currentPayment.disabledMethods?.card),
+          upi: Boolean(currentPayment.disabledMethods?.upi),
+          wallet: Boolean(currentPayment.disabledMethods?.wallet),
+        };
+
+        if (preferences.payment.disabledMethods !== undefined) {
+          if (
+            typeof preferences.payment.disabledMethods !== "object" ||
+            preferences.payment.disabledMethods === null
+          ) {
+            return res.status(400).json({ message: "Invalid disabled payment methods payload" });
+          }
+
+          for (const method of PAYMENT_METHODS) {
+            const value = preferences.payment.disabledMethods[method];
+            if (value !== undefined) {
+              if (typeof value !== "boolean") {
+                return res.status(400).json({ message: `${method} disabled flag must be a boolean` });
+              }
+              nextDisabledMethods[method] = value;
+              updates[`preferences.payment.disabledMethods.${method}`] = value;
+            }
+          }
+        }
+
+        if (preferences.payment.preferredMethod !== undefined) {
+          if (!PAYMENT_METHODS.includes(preferences.payment.preferredMethod)) {
+            return res.status(400).json({ message: "Unsupported preferred payment method" });
+          }
+          updates["preferences.payment.preferredMethod"] = preferences.payment.preferredMethod;
+        }
+
+        if (preferences.payment.lastUsedMethod !== undefined) {
+          if (!PAYMENT_METHODS.includes(preferences.payment.lastUsedMethod)) {
+            return res.status(400).json({ message: "Unsupported last used payment method" });
+          }
+          updates["preferences.payment.lastUsedMethod"] = preferences.payment.lastUsedMethod;
+        }
+
+        if (nextDisabledMethods[nextPreferredMethod]) {
+          return res.status(400).json({
+            message: "You cannot disable your preferred payment method. Choose another preferred method first.",
+          });
+        }
+
+        if (Object.values(nextDisabledMethods).every(Boolean)) {
+          return res.status(400).json({ message: "At least one payment method must stay enabled." });
+        }
       }
     }
 

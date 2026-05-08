@@ -12,6 +12,10 @@ import {
   resolveCouponApplication,
 } from "../../offers/service/offers.service.js";
 import {
+  assertTicketLimitForMembership,
+  getRewardEarnRateForMembership,
+} from "../../subscription/service/pro-perks.service.js";
+import {
   createBookedSeatsForBooking,
   ensureSeatsNotBooked,
   finalizeSeatLocksAfterBooking,
@@ -115,6 +119,8 @@ export const preparePayment = async (req, res) => {
       return res.status(400).json({ message: "Missing booking details" });
     }
 
+    assertTicketLimitForMembership(normalizedSeatIds, req.user?.membership);
+
     if (coupon && redeemReward) {
       return res.status(400).json({
         message: "Coupon and reward redemption cannot be applied together",
@@ -217,6 +223,8 @@ export const createOrder = async (req, res) => {
     if (!showContext.showId || normalizedSeatIds.length === 0 || !userId) {
       throw createHttpError("Missing required fields", 400);
     }
+
+    assertTicketLimitForMembership(normalizedSeatIds, req.user?.membership);
 
     if (coupon && redeemReward) {
       throw createHttpError(
@@ -482,8 +490,15 @@ export const verifyPayment = async (req, res) => {
           const canEarnReward =
             Number(booking.rewardPointsRedeemed || 0) === 0 &&
             Number(booking.amount || 0) >= 450;
+          const earningUser = canEarnReward
+            ? await User.findById(booking.userId).select("membership").session(session)
+            : null;
+          const rewardEarnRate = getRewardEarnRateForMembership(
+            REWARD_EARN_RATE,
+            earningUser?.membership
+          );
           const earnedPoints = canEarnReward
-            ? Number((Number(booking.amount || 0) * REWARD_EARN_RATE).toFixed(2))
+            ? Number((Number(booking.amount || 0) * rewardEarnRate).toFixed(2))
             : 0;
 
           if (earnedPoints > 0) {
@@ -739,8 +754,12 @@ export const payWithWallet = async (req, res) => {
           const canEarnReward =
             Number(booking.rewardPointsRedeemed || 0) === 0 &&
             Number(booking.amount || 0) >= 450;
+          const rewardEarnRate = getRewardEarnRateForMembership(
+            REWARD_EARN_RATE,
+            user.membership
+          );
           const earnedPoints = canEarnReward
-            ? Number((amount * REWARD_EARN_RATE).toFixed(2))
+            ? Number((amount * rewardEarnRate).toFixed(2))
             : 0;
 
           if (earnedPoints > 0) {

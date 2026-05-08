@@ -1,10 +1,26 @@
 import mongoose from "mongoose";
 
 const PaymentSchema = new mongoose.Schema({
+  paymentFor: {
+    type: String,
+    enum: ["booking", "subscription"],
+    default: "booking",
+    index: true,
+  },
+
   bookingId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Booking",
-    required: true
+    required: function () {
+      return this.paymentFor !== "subscription";
+    },
+    default: null,
+  },
+
+  subscriptionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Subscription",
+    default: null,
   },
 
   orderId: {

@@ -2,9 +2,9 @@ import { getRedisClient } from "../../../config/redis.js";
 import {
   buildSeatLockKey,
   buildShowSessionKey,
-  resolveSeatLockTtlSeconds,
   toIdString,
 } from "../utils/show.utils.js";
+import { getSeatLockTtlSecondsForMembership } from "../../subscription/service/pro-perks.service.js";
 
 const LOCK_SCHEDULE_KEY = "seat_lock_expirations";
 
@@ -25,7 +25,7 @@ const FALLBACK_REMOVE_SCRIPT = `
 
 const normalizeTtlSeconds = (ttl) => {
   if (!Number.isFinite(ttl) || ttl <= 0) {
-    return resolveSeatLockTtlSeconds();
+    return getSeatLockTtlSecondsForMembership();
   }
 
   return Math.floor(ttl);
@@ -36,28 +36,36 @@ const getSeatKeys = (showId, seatIds = []) =>
 
 export const getSeatLockScheduleKey = () => LOCK_SCHEDULE_KEY;
 
-export const resolveShowLockTtlSeconds = async ({ showId, userId }) => {
+export const resolveShowLockTtlSeconds = async ({ showId, userId, membership }) => {
   const redis = await getRedisClient();
   const sessionKey = buildShowSessionKey(showId, userId);
+  const requestedTtlSeconds = getSeatLockTtlSecondsForMembership(membership);
 
   let ttlSeconds = await redis.ttl(sessionKey);
 
   if (ttlSeconds <= 0) {
     await redis.set(sessionKey, toIdString(userId), {
       NX: true,
-      EX: resolveSeatLockTtlSeconds(),
+      EX: requestedTtlSeconds,
     });
     ttlSeconds = await redis.ttl(sessionKey);
+  } else if (ttlSeconds < requestedTtlSeconds) {
+    await redis.expire(sessionKey, requestedTtlSeconds);
+    ttlSeconds = requestedTtlSeconds;
   }
 
   return normalizeTtlSeconds(ttlSeconds);
 };
 
-export const acquireSeatLock = async ({ showId, seatId, userId }) => {
+export const acquireSeatLock = async ({ showId, seatId, userId, membership }) => {
   const redis = await getRedisClient();
   const normalizedUserId = toIdString(userId);
   const seatKey = buildSeatLockKey(showId, seatId);
-  const ttlSeconds = await resolveShowLockTtlSeconds({ showId, userId: normalizedUserId });
+  const ttlSeconds = await resolveShowLockTtlSeconds({
+    showId,
+    userId: normalizedUserId,
+    membership,
+  });
 
   const lockResult = await redis.set(seatKey, normalizedUserId, {
     NX: true,

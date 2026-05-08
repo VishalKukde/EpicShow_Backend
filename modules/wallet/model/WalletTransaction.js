@@ -21,6 +21,7 @@ const walletTransactionSchema = new mongoose.Schema(
         "topup",
         "reward_bonus",
         "booking_payment",
+        "subscription",
         "refund",
         "admin_adjustment"
       ],
