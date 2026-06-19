@@ -8,6 +8,31 @@ const PaymentSchema = new mongoose.Schema({
     index: true,
   },
 
+  bookingType: {
+    type: String,
+    trim: true,
+    default: null,
+    index: true,
+  },
+
+  showType: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+
+  title: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+
+  details: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+
   bookingId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Booking",

@@ -23,6 +23,7 @@ import eventPaymentRoutes from "./modules/event/routes/payment.routes.js";
 import gamingRoutes from "./modules/gaming/routes/gaming.routes.js";
 import gamingBookingRoutes from "./modules/gaming/routes/booking.routes.js";
 import gamingPaymentRoutes from "./modules/gaming/routes/payment.routes.js";
+import trainRoutes from "./modules/trains/routes/train.routes.js";
 import chatRoutes from "./modules/chat/routes/chat.routes.js";
 import offersRoutes from "./modules/offers/routes/offers.routes.js";
 import adminRoutes from "./modules/admin/routes/admin.routes.js";
@@ -44,6 +45,7 @@ const MONGO_URIS = process.env.MONGO_URI;
 app.set("trust proxy", 1);
 
 // Connect to MongoDB
+console.log("Mongo URI:", process.env.MONGO_URI);
 mongoose
   .connect(MONGO_URIS)
   .then(() => console.log("Connected to MongoDB"))
@@ -135,6 +137,7 @@ app.use("/", eventPaymentRoutes);
 app.use("/", gamingRoutes);
 app.use("/", gamingBookingRoutes);
 app.use("/", gamingPaymentRoutes);
+app.use("/trains", trainRoutes);
 app.use("/", seatRoutes);
 app.use("/", paymentRoutes);
 app.use("/", bookingRoutes);

@@ -1,5 +1,50 @@
 
 import Payment from "../../movies/models/Payment.js";
+import TrainBooking from "../../trains/models/TrainBooking.js";
+
+async function syncUserCancelledTrainRefundPayments(userId) {
+  const cancelledTrainBookings = await TrainBooking.find({
+    userId,
+    status: "cancelled",
+    "payment.transactionId": { $nin: [null, ""] },
+  })
+    .populate("trainId", "trainName trainNumber fromStation toStation")
+    .limit(100);
+
+  await Promise.all(cancelledTrainBookings.map(async (booking) => {
+    const existingPayment = await Payment.findOne({ bookingId: booking._id });
+    if (existingPayment?.status === "refunded") return;
+
+    const train = booking.trainId || {};
+    const title = train?.trainName
+      ? `${train.trainName}${train.trainNumber ? ` #${train.trainNumber}` : ""}`
+      : "Train booking";
+    const details = train?.fromStation && train?.toStation
+      ? `${train.fromStation} to ${train.toStation}`
+      : "Train journey";
+
+    await Payment.findOneAndUpdate(
+      { bookingId: booking._id },
+      {
+        $set: {
+          bookingType: "train",
+          showType: "train",
+          title,
+          details,
+          bookingId: booking._id,
+          orderId: booking.payment.orderId || booking.razorpayOrderId || `train_order_${booking._id}`,
+          paymentId: booking.payment.transactionId,
+          signature: booking.payment.signature || "train",
+          method: booking.payment.method || "upi",
+          amount: booking.payment.amount || booking.totalPrice,
+          currency: booking.payment.currency || "INR",
+          status: "refund_initiated",
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+  }));
+}
 
 export const getRefundTransactions = async (req, res) => {
   try {
@@ -15,6 +60,8 @@ export const getRefundTransactions = async (req, res) => {
         : 10;
     const skip = (page - 1) * limit;
     const userId = String(req.user.id);
+
+    await syncUserCancelledTrainRefundPayments(req.user.id);
 
     const [{ data = [], meta = [], stats = [], types = [] } = {}] =
       await Payment.aggregate([
@@ -35,23 +82,50 @@ export const getRefundTransactions = async (req, res) => {
           },
         },
         {
-          $addFields: {
-            movieBooking: { $arrayElemAt: ["$movieBooking", 0] },
-            sportBooking: { $arrayElemAt: ["$sportBooking", 0] },
+          $lookup: {
+            from: "trainbookings",
+            localField: "bookingId",
+            foreignField: "_id",
+            as: "trainBooking",
           },
         },
         {
           $addFields: {
-            booking: { $ifNull: ["$movieBooking", "$sportBooking"] },
+            movieBooking: { $arrayElemAt: ["$movieBooking", 0] },
+            sportBooking: { $arrayElemAt: ["$sportBooking", 0] },
+            trainBooking: { $arrayElemAt: ["$trainBooking", 0] },
+          },
+        },
+        {
+          $addFields: {
+            booking: { $ifNull: ["$movieBooking", { $ifNull: ["$sportBooking", "$trainBooking"] }] },
             isSportBooking: {
               $cond: [{ $ifNull: ["$sportBooking._id", false] }, true, false],
             },
+            isTrainBooking: {
+              $cond: [{ $ifNull: ["$trainBooking._id", false] }, true, false],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "trains",
+            localField: "trainBooking.trainId",
+            foreignField: "_id",
+            as: "trainDoc",
+            pipeline: [{ $project: { trainName: 1, trainNumber: 1, fromStation: 1, toStation: 1, imageUrl: 1, departureTime: 1 } }],
+          },
+        },
+        { $unwind: { path: "$trainDoc", preserveNullAndEmptyArrays: true } },
+        {
+          $addFields: {
+            bookingUserIdString: { $toString: "$booking.userId" },
           },
         },
         {
           $match: {
             status: { $in: ["refunded", "refund_initiated"] },
-            "booking.userId": userId,
+            bookingUserIdString: userId,
           },
         },
         {
@@ -123,16 +197,22 @@ export const getRefundTransactions = async (req, res) => {
           $addFields: {
             bookingType: {
               $cond: [
-                "$isSportBooking",
-                "sports",
-                { $ifNull: ["$booking.showType", "movies"] },
+                "$isTrainBooking",
+                "train",
+                {
+                  $cond: [
+                    "$isSportBooking",
+                    "sports",
+                    { $ifNull: ["$booking.showType", "movies"] },
+                  ],
+                },
               ],
             },
-            refundAmount: { $ifNull: ["$walletRefund.amount", "$amount", "$booking.amount", 0] },
+            refundAmount: { $ifNull: ["$walletRefund.amount", { $ifNull: ["$amount", { $ifNull: ["$booking.amount", { $ifNull: ["$booking.totalPrice", 0] }] }] }] },
             refundDate: { $ifNull: ["$walletRefund.createdAt", "$updatedAt", "$createdAt"] },
-            bookingDate: { $ifNull: ["$booking.date", "$booking.schedule.date"] },
-            bookingSlot: { $ifNull: ["$booking.slot", "$booking.schedule.time"] },
-            ticketCount: { $size: { $ifNull: ["$booking.seatIds", []] } },
+            bookingDate: { $ifNull: ["$booking.date", { $ifNull: ["$booking.schedule.date", "$booking.journeyDate"] }] },
+            bookingSlot: { $ifNull: ["$booking.slot", { $ifNull: ["$booking.schedule.time", "$trainDoc.departureTime"] }] },
+            ticketCount: { $size: { $ifNull: ["$booking.seatIds", { $ifNull: ["$booking.seats", []] }] } },
             walletBalanceAfter: "$walletRefund.balanceAfter",
           },
         },
@@ -141,6 +221,26 @@ export const getRefundTransactions = async (req, res) => {
             bookingTitle: {
               $switch: {
                 branches: [
+                  {
+                    case: "$isTrainBooking",
+                    then: {
+                      $ifNull: [
+                        "$title",
+                        {
+                          $concat: [
+                            { $ifNull: ["$trainDoc.trainName", "Train booking"] },
+                            {
+                              $cond: [
+                                "$trainDoc.trainNumber",
+                                { $concat: [" #", "$trainDoc.trainNumber"] },
+                                "",
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
                   {
                     case: "$isSportBooking",
                     then: {
@@ -171,6 +271,21 @@ export const getRefundTransactions = async (req, res) => {
             bookingVenue: {
               $switch: {
                 branches: [
+                  {
+                    case: "$isTrainBooking",
+                    then: {
+                      $ifNull: [
+                        "$details",
+                        {
+                          $concat: [
+                            { $ifNull: ["$trainDoc.fromStation", "From"] },
+                            " to ",
+                            { $ifNull: ["$trainDoc.toStation", "To"] },
+                          ],
+                        },
+                      ],
+                    },
+                  },
                   {
                     case: "$isSportBooking",
                     then: {
@@ -223,6 +338,7 @@ export const getRefundTransactions = async (req, res) => {
             posterUrl: {
               $switch: {
                 branches: [
+                  { case: { $eq: ["$bookingType", "train"] }, then: "$trainDoc.imageUrl" },
                   { case: { $eq: ["$bookingType", "event"] }, then: "$eventDoc.imageUrl" },
                   { case: { $eq: ["$bookingType", "gaming"] }, then: "$gamingDoc.imageUrl" },
                 ],
@@ -256,7 +372,7 @@ export const getRefundTransactions = async (req, res) => {
                   bookingVenue: { $ifNull: ["$bookingVenue", "Venue TBD"] },
                   bookingDate: 1,
                   bookingSlot: 1,
-                  seatIds: { $ifNull: ["$booking.seatIds", []] },
+                  seatIds: { $ifNull: ["$booking.seatIds", { $ifNull: ["$booking.seats", []] }] },
                   ticketCount: 1,
                   coupon: "$booking.coupon",
                   couponDiscount: { $ifNull: ["$booking.couponDiscount", 0] },

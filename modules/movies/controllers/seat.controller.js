@@ -15,6 +15,21 @@ const PREMIUM_ROWS = new Set(["H", "I", "J"]);
 const getSeatPrice = (rowLabel, basePrice) =>
   PREMIUM_ROWS.has(rowLabel) ? 320 : basePrice;
 
+const mapSeatLayoutPreview = (cinema) => ({
+  id: toIdString(cinema._id),
+  name: cinema.name,
+  cinemaId: cinema.cinemaId,
+  seats: cinema.seats.map((row) => ({
+    row: row.row,
+    seats: row.seats.map((seat) => ({
+      id: normalizeString(seat.seatId),
+      number: Number(seat.number),
+      price: getSeatPrice(row.row, seat.price),
+      status: "available",
+    })),
+  })),
+});
+
 const resolveShowPayload = ({ movieId, itemId, eventId, cinemaId, showDate, showSlot }) => {
   const resolvedItemId = toIdString(itemId || eventId || movieId);
   const resolvedCinemaId = normalizeString(cinemaId);
@@ -33,6 +48,22 @@ const resolveShowPayload = ({ movieId, itemId, eventId, cinemaId, showDate, show
       showSlot: resolvedShowSlot,
     }),
   };
+};
+
+export const getMovieSeatLayouts = async (_req, res) => {
+  try {
+    const cinemas = await Seat.find({})
+      .select("name cinemaId seats")
+      .sort({ name: 1 })
+      .lean();
+
+    res.json({
+      data: cinemas.map(mapSeatLayoutPreview),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to load movie seat layouts" });
+  }
 };
 
 export const getSeatLayoutByCinemaId = async (req, res) => {

@@ -243,7 +243,6 @@ export const preparePayment = async (req, res) => {
         .json({ message: "Coupon and reward redemption cannot be applied together" });
     }
 
-    console.log(coupon);
     if (coupon) {
       couponApplication = await resolveCouponApplication({
         userId,
@@ -1048,6 +1047,14 @@ export const getPaymentTransactions = async (req, res) => {
       },
       {
         $lookup: {
+          from: "trainbookings",
+          localField: "bookingId",
+          foreignField: "_id",
+          as: "trainBooking",
+        },
+      },
+      {
+        $lookup: {
           from: "subscriptions",
           localField: "subscriptionId",
           foreignField: "_id",
@@ -1058,18 +1065,36 @@ export const getPaymentTransactions = async (req, res) => {
         $addFields: {
           movieBooking: { $arrayElemAt: ["$movieBooking", 0] },
           sportBooking: { $arrayElemAt: ["$sportBooking", 0] },
+          trainBooking: { $arrayElemAt: ["$trainBooking", 0] },
           subscription: { $arrayElemAt: ["$subscription", 0] },
         },
       },
       {
         $addFields: {
-          booking: { $ifNull: ["$movieBooking", "$sportBooking"] },
+          booking: {
+            $ifNull: [
+              "$movieBooking",
+              { $ifNull: ["$sportBooking", "$trainBooking"] },
+            ],
+          },
           bookingType: {
             $cond: [
-              { $ne: ["$movieBooking", null] },
-              "movie",
+              { $eq: ["$bookingType", "train"] },
+              "train",
               {
-                $cond: [{ $ne: ["$sportBooking", null] }, "sport", null],
+                $cond: [
+                  { $ne: ["$movieBooking", null] },
+                  "movie",
+                  {
+                    $cond: [
+                      { $ne: ["$sportBooking", null] },
+                      "sport",
+                      {
+                        $cond: [{ $ne: ["$trainBooking", null] }, "train", "$bookingType"],
+                      },
+                    ],
+                  },
+                ],
               },
             ],
           },
@@ -1079,6 +1104,7 @@ export const getPaymentTransactions = async (req, res) => {
         $match: {
           $or: [
             { "booking.userId": userId },
+            ...(userObjectId ? [{ "booking.userId": userObjectId }] : []),
             ...(userObjectId ? [{ "subscription.userId": userObjectId }] : []),
           ],
         },
@@ -1101,6 +1127,25 @@ export const getPaymentTransactions = async (req, res) => {
           },
         },
       },
+      {
+        $lookup: {
+          from: "trains",
+          localField: "trainBooking.trainId",
+          foreignField: "_id",
+          as: "train",
+          pipeline: [
+            {
+              $project: {
+                trainName: 1,
+                trainNumber: 1,
+                fromStation: 1,
+                toStation: 1,
+              },
+            },
+          ],
+        },
+      },
+      { $unwind: { path: "$train", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: "movies",
@@ -1186,9 +1231,37 @@ export const getPaymentTransactions = async (req, res) => {
                       ],
                     },
                     {
-                      $ifNull: [
-                        "$movie.name",
-                        { $concat: ["Booking - ", "$booking.cinemaId"] },
+                      $cond: [
+                        { $eq: ["$bookingType", "train"] },
+                        {
+                          $ifNull: [
+                            "$title",
+                            {
+                              $cond: [
+                                { $ifNull: ["$train.trainName", false] },
+                                {
+                                  $concat: [
+                                    "$train.trainName",
+                                    {
+                                      $cond: [
+                                        { $ifNull: ["$train.trainNumber", false] },
+                                        { $concat: [" #", "$train.trainNumber"] },
+                                        "",
+                                      ],
+                                    },
+                                  ],
+                                },
+                                "Train booking",
+                              ],
+                            },
+                          ],
+                        },
+                        {
+                          $ifNull: [
+                            "$movie.name",
+                            { $concat: ["Booking - ", "$booking.cinemaId"] },
+                          ],
+                        },
                       ],
                     },
                   ],
@@ -1203,9 +1276,33 @@ export const getPaymentTransactions = async (req, res) => {
                   $cond: [
                     { $eq: ["$bookingType", "sport"] },
                     { $ifNull: ["$booking.sportType", "sport"] },
-                    { $ifNull: ["$booking.showType", { $ifNull: ["$bookingType", "N/A"] }] },
+                    {
+                      $cond: [
+                        { $eq: ["$bookingType", "train"] },
+                        { $ifNull: ["$showType", "train"] },
+                        { $ifNull: ["$booking.showType", { $ifNull: ["$bookingType", "N/A"] }] },
+                      ],
+                    },
                   ],
                 },
+              ],
+            },
+            details: {
+              $cond: [
+                { $eq: ["$bookingType", "train"] },
+                {
+                  $ifNull: [
+                    "$details",
+                    {
+                      $concat: [
+                        { $ifNull: ["$train.fromStation", "From"] },
+                        " to ",
+                        { $ifNull: ["$train.toStation", "To"] },
+                      ],
+                    },
+                  ],
+                },
+                null,
               ],
             },
             booking: {
@@ -1215,7 +1312,11 @@ export const getPaymentTransactions = async (req, res) => {
                   { $eq: ["$bookingType", "sport"] },
                   { $ifNull: ["$booking.sportType", "sport"] },
                   {
-                    $ifNull: ["$booking.showType", { $ifNull: ["$bookingType", "N/A"] }],
+                    $cond: [
+                      { $eq: ["$bookingType", "train"] },
+                      "train",
+                      { $ifNull: ["$booking.showType", { $ifNull: ["$bookingType", "N/A"] }] },
+                    ],
                   },
                 ],
               },

@@ -1,6 +1,8 @@
 import Booking from "../../movies/models/Booking.js";
 import Payment from "../../movies/models/Payment.js";
 import SportBooking from "../../sports/models/Booking.js";
+import TrainBooking from "../../trains/models/TrainBooking.js";
+import Train from "../../trains/models/Train.js";
 import Event from "../../event/models/Event.js";
 import Gaming from "../../gaming/models/Gaming.js";
 import User from "../../user/model/User.js";
@@ -227,6 +229,69 @@ function sportBasePipeline() {
   ];
 }
 
+function trainBasePipeline() {
+  return [
+    {
+      $lookup: {
+        from: "trains",
+        localField: "trainId",
+        foreignField: "_id",
+        as: "trainDoc",
+        pipeline: [{ $project: { trainName: 1, trainNumber: 1, fromStation: 1, toStation: 1, departureTime: 1, arrivalTime: 1 } }],
+      },
+    },
+    { $unwind: { path: "$trainDoc", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "userId",
+        foreignField: "_id",
+        as: "userDoc",
+        pipeline: [{ $project: { name: 1, email: 1 } }],
+      },
+    },
+    { $unwind: { path: "$userDoc", preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        status: {
+          $cond: [{ $eq: ["$status", "confirmed"] }, "paid", "$status"],
+        },
+        title: {
+          $concat: [
+            { $ifNull: ["$trainDoc.trainName", "Train booking"] },
+            {
+              $cond: [
+                "$trainDoc.trainNumber",
+                { $concat: [" #", "$trainDoc.trainNumber"] },
+                "",
+              ],
+            },
+          ],
+        },
+        userName: { $ifNull: ["$userDoc.name", "$userDoc.email", "Guest User"] },
+        userEmail: { $ifNull: ["$userDoc.email", "No email"] },
+        theater: {
+          $concat: [
+            { $ifNull: ["$trainDoc.fromStation", "From"] },
+            " to ",
+            { $ifNull: ["$trainDoc.toStation", "To"] },
+          ],
+        },
+        ticketCount: { $size: { $ifNull: ["$seats", []] } },
+        saleAmount: { $cond: [{ $eq: ["$status", "confirmed"] }, { $ifNull: ["$totalPrice", 0] }, 0] },
+        bookingTime: "$createdAt",
+        showType: "train",
+        date: "$journeyDate",
+        slot: "$trainDoc.departureTime",
+        seatIds: { $ifNull: ["$seats", []] },
+        amount: "$totalPrice",
+        paymentId: "$payment.transactionId",
+        razorpayOrderId: { $ifNull: ["$payment.orderId", "$razorpayOrderId"] },
+      },
+    },
+  ];
+}
+
 function ordersBasePipeline() {
   return [
     {
@@ -246,16 +311,35 @@ function ordersBasePipeline() {
       },
     },
     {
-      $addFields: {
-        movieBooking: { $arrayElemAt: ["$movieBooking", 0] },
-        sportBooking: { $arrayElemAt: ["$sportBooking", 0] },
+      $lookup: {
+        from: "trainbookings",
+        localField: "bookingId",
+        foreignField: "_id",
+        as: "trainBooking",
       },
     },
     {
       $addFields: {
-        booking: { $ifNull: ["$movieBooking", "$sportBooking"] },
+        movieBooking: { $arrayElemAt: ["$movieBooking", 0] },
+        sportBooking: { $arrayElemAt: ["$sportBooking", 0] },
+        trainBooking: { $arrayElemAt: ["$trainBooking", 0] },
       },
     },
+    {
+      $addFields: {
+        booking: { $ifNull: ["$movieBooking", { $ifNull: ["$sportBooking", "$trainBooking"] }] },
+      },
+    },
+    {
+      $lookup: {
+        from: "trains",
+        localField: "trainBooking.trainId",
+        foreignField: "_id",
+        as: "trainDoc",
+        pipeline: [{ $project: { trainName: 1, trainNumber: 1, fromStation: 1, toStation: 1, departureTime: 1 } }],
+      },
+    },
+    { $unwind: { path: "$trainDoc", preserveNullAndEmptyArrays: true } },
     {
       $addFields: {
         userObjectId: {
@@ -282,21 +366,27 @@ function ordersBasePipeline() {
       $addFields: {
         paymentStatus: {
           $cond: [
-            { $eq: ["$status", "success"] },
-            "paid",
+            { $and: [{ $eq: ["$booking.status", "cancelled"] }, { $ne: ["$status", "refunded"] }] },
+            "refund_initiated",
             {
               $cond: [
-                { $eq: ["$status", "refund_initiated"] },
-                "refund_initiated",
+                { $eq: ["$status", "success"] },
+                "paid",
                 {
                   $cond: [
-                    { $in: ["$status", ["refunded"]] },
-                    "refunded",
+                    { $eq: ["$status", "refund_initiated"] },
+                    "refund_initiated",
                     {
                       $cond: [
-                        { $eq: ["$booking.status", "refunded"] },
+                        { $in: ["$status", ["refunded"]] },
                         "refunded",
-                        "failed",
+                        {
+                          $cond: [
+                            { $eq: ["$booking.status", "refunded"] },
+                            "refunded",
+                            "failed",
+                          ],
+                        },
                       ],
                     },
                   ],
@@ -307,57 +397,108 @@ function ordersBasePipeline() {
         },
         userName: { $ifNull: ["$userDoc.name", "Guest User"] },
         userEmail: { $ifNull: ["$userDoc.email", "No email"] },
-        bookingStatus: { $ifNull: ["$booking.status", "unknown"] },
-        ticketCount: { $size: { $ifNull: ["$booking.seatIds", []] } },
-        totalAmount: { $ifNull: ["$amount", "$booking.amount", 0] },
+        bookingStatus: {
+          $cond: [
+            { $and: [{ $ifNull: ["$trainBooking._id", false] }, { $eq: ["$booking.status", "confirmed"] }] },
+            "paid",
+            { $ifNull: ["$booking.status", "unknown"] },
+          ],
+        },
+        ticketCount: { $size: { $ifNull: ["$booking.seatIds", { $ifNull: ["$booking.seats", []] }] } },
+        totalAmount: { $ifNull: ["$amount", { $ifNull: ["$booking.amount", { $ifNull: ["$booking.totalPrice", 0] }] }] },
         paymentMethod: { $ifNull: ["$method", "wallet"] },
         createdDate: "$createdAt",
         bookingType: {
           $cond: [
-            { $ifNull: ["$sportBooking._id", false] },
-            "sports",
-            { $ifNull: ["$booking.showType", "movies"] },
+            { $ifNull: ["$trainBooking._id", false] },
+            "train",
+            {
+              $cond: [
+                { $ifNull: ["$sportBooking._id", false] },
+                "sports",
+                { $ifNull: ["$booking.showType", "movies"] },
+              ],
+            },
           ],
         },
         bookingTitle: {
           $cond: [
-            { $ifNull: ["$sportBooking._id", false] },
+            { $ifNull: ["$trainBooking._id", false] },
             {
               $ifNull: [
-                "$booking.teams.label",
+                "$title",
                 {
                   $concat: [
-                    { $ifNull: ["$booking.teams.teamA", "Team A"] },
-                    " vs ",
-                    { $ifNull: ["$booking.teams.teamB", "Team B"] },
+                    { $ifNull: ["$trainDoc.trainName", "Train booking"] },
+                    {
+                      $cond: [
+                        "$trainDoc.trainNumber",
+                        { $concat: [" #", "$trainDoc.trainNumber"] },
+                        "",
+                      ],
+                    },
                   ],
                 },
               ],
             },
-            { $ifNull: ["$booking.itemId", "Movie booking"] },
+            {
+              $cond: [
+                { $ifNull: ["$sportBooking._id", false] },
+                {
+                  $ifNull: [
+                    "$booking.teams.label",
+                    {
+                      $concat: [
+                        { $ifNull: ["$booking.teams.teamA", "Team A"] },
+                        " vs ",
+                        { $ifNull: ["$booking.teams.teamB", "Team B"] },
+                      ],
+                    },
+                  ],
+                },
+                { $ifNull: ["$title", { $ifNull: ["$booking.itemId", "Movie booking"] }] },
+              ],
+            },
           ],
         },
         bookingVenue: {
           $cond: [
-            { $ifNull: ["$sportBooking._id", false] },
+            { $ifNull: ["$trainBooking._id", false] },
             {
               $ifNull: [
+                "$details",
                 {
-                  $cond: [
-                    { $and: ["$booking.venue.name", "$booking.venue.city"] },
-                    { $concat: ["$booking.venue.name", ", ", "$booking.venue.city"] },
-                    "$booking.venue.name",
+                  $concat: [
+                    { $ifNull: ["$trainDoc.fromStation", "From"] },
+                    " to ",
+                    { $ifNull: ["$trainDoc.toStation", "To"] },
                   ],
                 },
-                "Stadium TBD",
               ],
             },
-            { $ifNull: ["$booking.cinemaId", "Venue TBD"] },
+            {
+              $cond: [
+                { $ifNull: ["$sportBooking._id", false] },
+                {
+                  $ifNull: [
+                    {
+                      $cond: [
+                        { $and: ["$booking.venue.name", "$booking.venue.city"] },
+                        { $concat: ["$booking.venue.name", ", ", "$booking.venue.city"] },
+                        "$booking.venue.name",
+                      ],
+                    },
+                    "Stadium TBD",
+                  ],
+                },
+                { $ifNull: ["$booking.cinemaId", "Venue TBD"] },
+              ],
+            },
           ],
         },
-        bookingDate: { $ifNull: ["$booking.date", "$booking.schedule.date"] },
-        bookingSlot: { $ifNull: ["$booking.slot", "$booking.schedule.time"] },
-        seatIds: { $ifNull: ["$booking.seatIds", []] },
+        bookingDate: { $ifNull: ["$booking.date", { $ifNull: ["$booking.schedule.date", "$booking.journeyDate"] }] },
+        bookingSlot: { $ifNull: ["$booking.slot", { $ifNull: ["$booking.schedule.time", "$trainDoc.departureTime"] }] },
+        seatIds: { $ifNull: ["$booking.seatIds", { $ifNull: ["$booking.seats", []] }] },
         coupon: "$booking.coupon",
         couponDiscount: { $ifNull: ["$booking.couponDiscount", 0] },
         rewardPointsRedeemed: { $ifNull: ["$booking.rewardPointsRedeemed", 0] },
@@ -369,9 +510,56 @@ function ordersBasePipeline() {
   ];
 }
 
+async function syncCancelledTrainRefundPayments() {
+  const cancelledTrainBookings = await TrainBooking.find({
+    status: "cancelled",
+    "payment.transactionId": { $nin: [null, ""] },
+  })
+    .populate("trainId", "trainName trainNumber fromStation toStation")
+    .limit(100);
+
+  await Promise.all(cancelledTrainBookings.map(async (booking) => {
+    const existingPayment = await Payment.findOne({ bookingId: booking._id });
+    if (existingPayment?.status === "refunded") return;
+
+    const train = booking.trainId || {};
+    const title = train?.trainName
+      ? `${train.trainName}${train.trainNumber ? ` #${train.trainNumber}` : ""}`
+      : "Train booking";
+    const details = train?.fromStation && train?.toStation
+      ? `${train.fromStation} to ${train.toStation}`
+      : "Train journey";
+
+    await Payment.findOneAndUpdate(
+      { bookingId: booking._id },
+      {
+        $set: {
+          bookingType: "train",
+          showType: "train",
+          title,
+          details,
+          bookingId: booking._id,
+          orderId: booking.payment.orderId || booking.razorpayOrderId || `train_order_${booking._id}`,
+          paymentId: booking.payment.transactionId,
+          signature: booking.payment.signature || "train",
+          method: booking.payment.method || "upi",
+          amount: booking.payment.amount || booking.totalPrice,
+          currency: booking.payment.currency || "INR",
+          status: "refund_initiated",
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+  }));
+}
+
 async function typeStats(type) {
-  const pipeline = type === "sports" ? sportBasePipeline() : baseBookingPipeline(TYPE_CONFIG[type]);
-  const collection = type === "sports" ? SportBooking : TYPE_CONFIG[type].collection;
+  const pipeline = type === "sports"
+    ? sportBasePipeline()
+    : type === "trains"
+      ? trainBasePipeline()
+      : baseBookingPipeline(TYPE_CONFIG[type]);
+  const collection = type === "sports" ? SportBooking : type === "trains" ? TrainBooking : TYPE_CONFIG[type].collection;
   const [stats = {}] = await collection.aggregate([
     ...pipeline,
     {
@@ -405,8 +593,10 @@ export const getAdminDashboard = async (req, res) => {
       eventStats,
       gamingStats,
       sportStats,
+      trainStats,
       activeEvents,
       activeGaming,
+      activeTrains,
       movieVenues,
       sportVenues,
       totalUsers,
@@ -416,8 +606,10 @@ export const getAdminDashboard = async (req, res) => {
       typeStats("events"),
       typeStats("gaming"),
       typeStats("sports"),
+      typeStats("trains"),
       Event.countDocuments({ endDateTime: { $gte: new Date() } }),
       Gaming.countDocuments({ endDateTime: { $gte: new Date() } }),
+      Train.countDocuments({ isActive: true }),
       Booking.distinct("cinemaId", { showType: "movie", cinemaId: { $nin: [null, ""] } }),
       SportBooking.distinct("venue.id", { "venue.id": { $nin: [null, ""] } }),
       User.countDocuments({}),
@@ -439,6 +631,7 @@ export const getAdminDashboard = async (req, res) => {
       { type: "sports", label: "Sports", ...sportStats },
       { type: "events", label: "Events", ...eventStats },
       { type: "gaming", label: "Gaming", ...gamingStats },
+      { type: "trains", label: "Trains", ...trainStats },
     ];
 
     const totalBookings = categories.reduce((sum, item) => sum + item.totalBookings, 0);
@@ -447,20 +640,35 @@ export const getAdminDashboard = async (req, res) => {
     const orders = orderStats[0] || {};
 
     const currentYear = new Date().getFullYear();
-    const bookingMonthly = await Booking.aggregate([
-      { $match: { status: "paid", createdAt: { $gte: new Date(`${currentYear}-01-01`) } } },
-      { $group: { _id: { $month: "$createdAt" }, revenue: { $sum: { $ifNull: ["$amount", 0] } } } },
-    ]);
-    const sportMonthly = await SportBooking.aggregate([
-      { $match: { status: "paid", createdAt: { $gte: new Date(`${currentYear}-01-01`) } } },
-      { $group: { _id: { $month: "$createdAt" }, revenue: { $sum: { $ifNull: ["$amount", 0] } } } },
+    const yearStart = new Date(currentYear, 0, 1);
+    const nextYearStart = new Date(currentYear + 1, 0, 1);
+    const paidMonthly = await Payment.aggregate([
+      {
+        $match: {
+          paymentFor: "booking",
+          status: "success",
+          createdAt: { $gte: yearStart, $lt: nextYearStart },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $toInt: {
+              $dateToString: {
+                date: "$createdAt",
+                format: "%m",
+                timezone: "Asia/Kolkata",
+              },
+            },
+          },
+          revenue: { $sum: { $ifNull: ["$amount", 0] } },
+        },
+      },
     ]);
 
     const monthlyRevenue = Array.from({ length: 12 }, (_, index) => {
       const month = index + 1;
-      const value = [...bookingMonthly, ...sportMonthly]
-        .filter((item) => item._id === month)
-        .reduce((sum, item) => sum + item.revenue, 0);
+      const value = paidMonthly.find((item) => item._id === month)?.revenue || 0;
       return {
         month: new Date(currentYear, index, 1).toLocaleString("en-IN", { month: "short" }),
         revenue: money(value),
@@ -474,7 +682,7 @@ export const getAdminDashboard = async (req, res) => {
           totalBookings,
           revenue,
           pendingRefunds,
-          activeVenues: activeEvents + activeGaming + movieVenues.length + sportVenues.length,
+          activeVenues: activeEvents + activeGaming + activeTrains + movieVenues.length + sportVenues.length,
           totalUsers,
           totalOrders: orders.totalOrders || 0,
           paidOrders: orders.paidOrders || 0,
@@ -503,7 +711,7 @@ export const getAdminBookings = async (req, res) => {
 
   try {
     const type = String(req.params.type || "movies").toLowerCase();
-    if (!["movies", "sports", "events", "gaming"].includes(type)) {
+    if (!["movies", "sports", "events", "gaming", "trains"].includes(type)) {
       return res.status(400).json({ success: false, message: "Unsupported booking type" });
     }
 
@@ -513,8 +721,12 @@ export const getAdminBookings = async (req, res) => {
     const theater = String(req.query.theater || "").trim();
     const timeRange = getDateRange(req.query.time);
 
-    const pipeline = type === "sports" ? sportBasePipeline() : baseBookingPipeline(TYPE_CONFIG[type]);
-    const collection = type === "sports" ? SportBooking : TYPE_CONFIG[type].collection;
+    const pipeline = type === "sports"
+      ? sportBasePipeline()
+      : type === "trains"
+        ? trainBasePipeline()
+        : baseBookingPipeline(TYPE_CONFIG[type]);
+    const collection = type === "sports" ? SportBooking : type === "trains" ? TrainBooking : TYPE_CONFIG[type].collection;
 
     const filters = {};
     if (status) filters.status = status;
@@ -621,6 +833,8 @@ export const getAdminOrders = async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
   try {
+    await syncCancelledTrainRefundPayments();
+
     const page = Math.max(Number.parseInt(String(req.query.page || "1"), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit || "10"), 10) || 10, 1), 50);
     const paymentStatus = PAYMENT_STATUS_OPTIONS.includes(req.query.status)
@@ -849,7 +1063,8 @@ export const refundAdminOrder = async (req, res) => {
 
     const booking =
       (await Booking.findById(payment.bookingId).select("userId")) ||
-      (await SportBooking.findById(payment.bookingId).select("userId"));
+      (await SportBooking.findById(payment.bookingId).select("userId")) ||
+      (await TrainBooking.findById(payment.bookingId).select("userId cancellationDetails"));
 
     if (!booking?.userId) {
       return res.status(404).json({ success: false, message: "Booking user not found" });
@@ -951,6 +1166,12 @@ export const refundAdminOrder = async (req, res) => {
         lockedPayment.refundId = refund.id;
         lockedPayment.status = "refunded";
         await lockedPayment.save({ session });
+
+        await TrainBooking.findByIdAndUpdate(
+          payment.bookingId,
+          { $set: { "cancellationDetails.refundStatus": "processed" } },
+          { session }
+        );
       });
     } finally {
       session.endSession();
