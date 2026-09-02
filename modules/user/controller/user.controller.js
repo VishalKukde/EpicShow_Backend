@@ -41,6 +41,82 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
+export const generateProfileAvatarImage = async (req, res) => {
+  try {
+    const userPrompt = String(req.body?.prompt || "").trim();
+    const prompt =
+      userPrompt ||
+      "Create a polished, modern, professional profile avatar for a user. Clean circular portrait, friendly face, neutral studio background, soft lighting, premium look, realistic style, centered composition, high detail, no text, no watermark.";
+
+    const geminiKey = process.env.GEMINI_KEY;
+    if (!geminiKey) {
+      return res.status(500).json({ message: "Gemini API key is not configured." });
+    }
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${encodeURIComponent(geminiKey)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Create a clean, high-quality profile avatar illustration for a user. Keep it polished, friendly, and visually appealing. Use this prompt: ${prompt}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 32,
+            topP: 0.9,
+            maxOutputTokens: 2048,
+            responseModalities: ["TEXT", "IMAGE"],
+          },
+        }),
+      }
+    );
+
+    const payload = await response.json();
+
+    if (!response.ok) {
+      const rawMessage = payload?.error?.message || "Failed to generate avatar.";
+      const isQuotaError =
+        response.status === 429 ||
+        /quota exceeded|rate limit|too many requests|please retry in|free_tier_requests/i.test(rawMessage);
+
+      return res.status(isQuotaError ? 429 : response.status || 500).json({
+        message: isQuotaError
+          ? "Image generation is temporarily unavailable. Please try again in a moment."
+          : rawMessage,
+      });
+    }
+
+    const imagePart = payload?.candidates?.[0]?.content?.parts?.find(
+      (part) => part?.inlineData?.data && part?.inlineData?.mimeType
+    );
+
+    const imageData = imagePart?.inlineData?.data;
+    const mimeType = imagePart?.inlineData?.mimeType || "image/png";
+
+    if (!imageData) {
+      return res.status(502).json({ message: "Gemini did not return a valid avatar image." });
+    }
+
+    return res.json({
+      imageData: `data:${mimeType};base64,${imageData}`,
+      message: "Avatar generated successfully.",
+    });
+  } catch (error) {
+    console.error("AI avatar generation error:", error);
+    return res.status(500).json({ message: error?.message || "Failed to generate avatar." });
+  }
+};
+
 export const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id; // from auth middleware

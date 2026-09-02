@@ -1,7 +1,12 @@
 import mongoose from "mongoose";
 import ChatMessage from "../model/ChatMessage.js";
 import User from "../../user/model/User.js";
-import { emitConversationCleared, isUserOnline } from "../socket/chat.socket.js";
+import {
+  emitChatConversationUpdate,
+  emitChatMessage,
+  emitConversationCleared,
+  isUserOnline,
+} from "../socket/chat.socket.js";
 
 const MAX_MESSAGES_PER_THREAD = 300;
 const EXCLUDED_CHAT_ROLES = ["admin", "manager"];
@@ -134,6 +139,67 @@ export const getAdminUsersForChat = async (req, res) => {
   }
 };
 
+export const sendMessage = async (req, res) => {
+  if (req.user?.role === "admin") {
+    return res.status(403).json({ message: "Admin should use socket-based chat." });
+  }
+
+  try {
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text) {
+      return res.status(400).json({ message: "Message is required" });
+    }
+
+    const userId = req.user?.id || req.user?._id;
+    if (!userId || !mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({ message: "Invalid user session" });
+    }
+
+    const conversationUserId = new mongoose.Types.ObjectId(userId);
+    const senderDoc = await User.findById(userId)
+      .select("_id name role avatar")
+      .lean();
+
+    const message = await ChatMessage.create({
+      conversationUserId,
+      senderId: userId,
+      senderRole: "user",
+      recipientId: null,
+      recipientRole: "admin",
+      text,
+      isReadByAdmin: false,
+      isReadByUser: true,
+    });
+
+    const serialized = serializeMessage(message);
+    const payload = {
+      ...serialized,
+      sender: senderDoc
+        ? {
+            id: toIdString(senderDoc._id),
+            name: senderDoc.name,
+            role: senderDoc.role,
+            avatar: senderDoc.avatar || null,
+          }
+        : null,
+    };
+
+    emitChatMessage(payload);
+    emitChatConversationUpdate({
+      userId: payload.conversationUserId,
+      lastMessage: payload.text,
+      lastMessageAt: payload.createdAt,
+      senderRole: payload.senderRole,
+      unreadCountDelta: 1,
+    });
+
+    return res.status(201).json({ message: payload });
+  } catch (error) {
+    console.error("sendMessage error:", error);
+    return res.status(500).json({ message: "Unable to send message" });
+  }
+};
+
 export const getMyConversation = async (req, res) => {
   if (req.user?.role === "admin") {
     return res
@@ -219,8 +285,12 @@ export const getConversationForAdmin = async (req, res) => {
 };
 
 export const clearConversation = async (req, res) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ message: "Only admin can clear chat conversations." });
+  }
+
   try {
-    const requesterRole = req.user?.role === "admin" ? "admin" : "user";
+    const requesterRole = "admin";
     const requesterId = req.user?.id || req.user?._id;
 
     let conversationUserId = toIdString(requesterId);

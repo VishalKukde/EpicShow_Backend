@@ -45,7 +45,7 @@ const MONGO_URIS = process.env.MONGO_URI;
 app.set("trust proxy", 1);
 
 // Connect to MongoDB
-console.log("Mongo URI:", process.env.MONGO_URI);
+// console.log("Mongo URI:", process.env.MONGO_URI);
 mongoose
   .connect(MONGO_URIS)
   .then(() => console.log("Connected to MongoDB"))

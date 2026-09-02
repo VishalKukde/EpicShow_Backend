@@ -79,6 +79,33 @@ export const emitConversationCleared = (payload = {}) => {
     .emit("chat:conversation:cleared", eventPayload);
 };
 
+export const emitChatMessage = (serializedMessage = {}) => {
+  if (!chatIo || !serializedMessage?.id) return;
+
+  const conversationUserId = toIdString(serializedMessage.conversationUserId);
+  if (!conversationUserId) return;
+
+  chatIo.to(ADMIN_ROOM).emit("chat:message", serializedMessage);
+  chatIo
+    .to(`${USER_ROOM_PREFIX}${conversationUserId}`)
+    .emit("chat:message", serializedMessage);
+};
+
+export const emitChatConversationUpdate = (payload = {}) => {
+  if (!chatIo) return;
+
+  const conversationUserId = toIdString(payload?.userId);
+  if (!conversationUserId) return;
+
+  chatIo.to(ADMIN_ROOM).emit("chat:conversation:update", {
+    userId: conversationUserId,
+    lastMessage: payload?.lastMessage ?? "",
+    lastMessageAt: payload?.lastMessageAt ?? new Date().toISOString(),
+    senderRole: payload?.senderRole ?? "user",
+    unreadCountDelta: Number(payload?.unreadCountDelta ?? 0),
+  });
+};
+
 export const emitUserNotification = (userId, payload = {}) => {
   if (!chatIo) return;
 
@@ -188,6 +215,11 @@ export const initializeChatSocket = (io) => {
       const respond =
         typeof ack === "function" ? ack : () => {};
 
+      if (currentUser.role !== "admin") {
+        respond({ ok: false, message: "Only admin can chat with users." });
+        return;
+      }
+
       try {
         const text = typeof payload?.text === "string" ? payload.text.trim() : "";
         if (!text) {
@@ -240,13 +272,18 @@ export const initializeChatSocket = (io) => {
 
         const serialized = serializeMessage(message, currentUser);
 
-        io.to(ADMIN_ROOM).emit("chat:message", serialized);
-        io.to(`${USER_ROOM_PREFIX}${serialized.conversationUserId}`).emit(
-          "chat:message",
-          serialized
-        );
+        emitChatMessage(serialized);
 
-        io.to(ADMIN_ROOM).emit("chat:conversation:update", {
+        if (currentUser.role === "admin") {
+          emitUserNotification(serialized.conversationUserId, {
+            id: `support-chat-${serialized.id}`,
+            type: "support_chat",
+            title: "Support Team",
+            message: "You have a message from support team.",
+          });
+        }
+
+        emitChatConversationUpdate({
           userId: serialized.conversationUserId,
           lastMessage: serialized.text,
           lastMessageAt: serialized.createdAt,

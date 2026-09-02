@@ -1,62 +1,180 @@
 [
   {
     "title": "IPL Fan Fest 2026",
+    "slug": "ipl-fan-fest-2026",
     "description": "A full-day fan carnival with player meet-ups, live screenings, and exclusive merchandise drops.",
-    "showType": "event",
+    "category": "festival",
+    "status": "approved",
+    "organizerId": "6858a1f8e9d4c12345678901",
     "city": "Mumbai",
     "venue": "Jio World Convention Centre",
+    "address": "BKC, Bandra East, Mumbai, Maharashtra",
     "venueId": "1921",
-    "startDateTime": "2026-04-12T18:30:00+05:30",
-    "endDateTime": "2026-04-12T22:30:00+05:30",
-    "price": 499,
-    "totalSeats": 240,
-    "availableSeats": 240,
-    "organizer": "Epic Show Live",
-    "imageUrl": "/assets/category/Event.png"
+    "startDateTime": "2026-04-12T13:00:00.000Z",
+    "endDateTime": "2026-04-12T17:00:00.000Z",
+    "bannerImage": "/assets/category/Event.png",
+    "galleryImages": [
+      "/assets/events/ipl-fanfest-1.jpg",
+      "/assets/events/ipl-fanfest-2.jpg"
+    ],
+    "ticketTypes": [
+      {
+        "name": "General",
+        "price": 499,
+        "totalSeats": 200,
+        "availableSeats": 200
+      },
+      {
+        "name": "VIP",
+        "price": 999,
+        "totalSeats": 40,
+        "availableSeats": 40
+      }
+    ],
+    "highlights": [
+      "Player meet and greet",
+      "Live IPL screening",
+      "Exclusive merchandise"
+    ],
+    "rules": [
+      "Valid ticket required",
+      "No outside food allowed",
+      "No refunds after booking"
+    ],
+    "isFeatured": true
   },
   {
-    "title": "Stand-up Night: Rahul Subramanian Live",
+    "title": "Rahul Subramanian Live",
+    "slug": "rahul-subramanian-live",
     "description": "An uncensored comedy special with new material and crowd interaction.",
-    "showType": "event",
+    "category": "comedy",
+    "status": "approved",
+    "organizerId": "6858a1f8e9d4c12345678902",
     "city": "Bengaluru",
     "venue": "Phoenix Marketcity Arena",
+    "address": "Whitefield Main Road, Bengaluru, Karnataka",
     "venueId": "1922",
-    "startDateTime": "2026-04-20T20:00:00+05:30",
-    "endDateTime": "2026-04-20T22:00:00+05:30",
-    "price": 799,
-    "totalSeats": 180,
-    "availableSeats": 180,
-    "organizer": "Laugh Factory India",
-    "imageUrl": "/assets/category/Event.png"
+    "startDateTime": "2026-04-20T14:30:00.000Z",
+    "endDateTime": "2026-04-20T16:30:00.000Z",
+    "bannerImage": "/assets/category/Event.png",
+    "galleryImages": [
+      "/assets/events/comedy-1.jpg",
+      "/assets/events/comedy-2.jpg"
+    ],
+    "ticketTypes": [
+      {
+        "name": "Regular",
+        "price": 799,
+        "totalSeats": 140,
+        "availableSeats": 140
+      },
+      {
+        "name": "Premium",
+        "price": 1299,
+        "totalSeats": 40,
+        "availableSeats": 40
+      }
+    ],
+    "highlights": [
+      "New stand-up material",
+      "Audience interaction",
+      "Live recording session"
+    ],
+    "rules": [
+      "18+ audience",
+      "No photography",
+      "No refunds"
+    ],
+    "isFeatured": false
   },
   {
     "title": "EDM Sunset Carnival",
+    "slug": "edm-sunset-carnival",
     "description": "Beachside EDM festival with headline DJs, immersive visuals, and sunset stages.",
-    "showType": "event",
+    "category": "concert",
+    "status": "approved",
+    "organizerId": "6858a1f8e9d4c12345678903",
     "city": "Goa",
     "venue": "Vagator Beach Grounds",
+    "address": "Vagator Beach, North Goa",
     "venueId": "1923",
-    "startDateTime": "2026-05-03T16:00:00+05:30",
-    "endDateTime": "2026-05-03T23:30:00+05:30",
-    "price": 1299,
-    "totalSeats": 320,
-    "availableSeats": 320,
-    "organizer": "Sunset Collective",
-    "imageUrl": "/assets/category/Event.png"
+    "startDateTime": "2026-05-03T10:30:00.000Z",
+    "endDateTime": "2026-05-03T18:00:00.000Z",
+    "bannerImage": "/assets/category/Event.png",
+    "galleryImages": [
+      "/assets/events/edm-1.jpg",
+      "/assets/events/edm-2.jpg",
+      "/assets/events/edm-3.jpg"
+    ],
+    "ticketTypes": [
+      {
+        "name": "General",
+        "price": 1299,
+        "totalSeats": 250,
+        "availableSeats": 250
+      },
+      {
+        "name": "VIP",
+        "price": 2999,
+        "totalSeats": 70,
+        "availableSeats": 70
+      }
+    ],
+    "highlights": [
+      "International DJs",
+      "Beachfront stage",
+      "Immersive visuals"
+    ],
+    "rules": [
+      "21+ event",
+      "Government ID mandatory",
+      "No outside beverages"
+    ],
+    "isFeatured": true
   },
   {
     "title": "Tech & Gaming Expo 2026",
+    "slug": "tech-and-gaming-expo-2026",
     "description": "Hands-on demos, esports showcases, and creator meetups across next-gen tech.",
-    "showType": "event",
+    "category": "gaming",
+    "status": "approved",
+    "organizerId": "6858a1f8e9d4c12345678904",
     "city": "Hyderabad",
     "venue": "HITEX Convention Hall",
-    "venueId": "1921",
-    "startDateTime": "2026-05-18T11:00:00+05:30",
-    "endDateTime": "2026-05-18T20:00:00+05:30",
-    "price": 599,
-    "totalSeats": 260,
-    "availableSeats": 260,
-    "organizer": "Future Arena",
-    "imageUrl": ""
+    "address": "HITEC City, Hyderabad, Telangana",
+    "venueId": "1924",
+    "startDateTime": "2026-05-18T05:30:00.000Z",
+    "endDateTime": "2026-05-18T14:30:00.000Z",
+    "bannerImage": "/assets/category/Gaming.png",
+    "galleryImages": [
+      "/assets/events/gaming-1.jpg",
+      "/assets/events/gaming-2.jpg"
+    ],
+    "ticketTypes": [
+      {
+        "name": "Standard",
+        "price": 599,
+        "totalSeats": 220,
+        "availableSeats": 220
+      },
+      {
+        "name": "Pro Pass",
+        "price": 1499,
+        "totalSeats": 40,
+        "availableSeats": 40
+      }
+    ],
+    "highlights": [
+      "Playable game demos",
+      "Esports tournaments",
+      "Creator meetups",
+      "Hardware showcase"
+    ],
+    "rules": [
+      "QR ticket mandatory",
+      "No re-entry",
+      "Security checks at entrance"
+    ],
+    "isFeatured": true
   }
 ]

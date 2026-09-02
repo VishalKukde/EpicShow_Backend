@@ -3,7 +3,7 @@ import { getRedisClient } from "../../../config/redis.js";
 
 const LATEST_RELEASES_CACHE_PREFIX = "movies:latest-releases";
 const LATEST_RELEASES_CACHE_TTL_SECONDS = Math.max(
-  Number(process.env.LATEST_RELEASES_CACHE_TTL_SECONDS) || 300,
+  Number(process.env.LATEST_RELEASES_CACHE_TTL_SECONDS) || 345600,
   30
 );
 

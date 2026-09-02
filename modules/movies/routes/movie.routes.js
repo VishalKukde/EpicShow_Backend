@@ -3,6 +3,7 @@ import { createMovie, getLatestReleases, getMovieById, getMovies } from "../cont
 import { createReview, getMovieReviews, getReviewForUser } from "../controllers/review.controller.js";
 import authMiddleware from "../../../middleware/auth.middleware.js";
 import { getWishlist, toggleWishlist } from "../controllers/wishlist.controller.js";
+import { askMovieAi } from "../controllers/askAi.controller.js";
 
 const router = express.Router();
 
@@ -15,5 +16,6 @@ router.post("/movies", authMiddleware, createMovie);
 router.post("/reviews", authMiddleware, createReview);
 router.post("/wishlist", authMiddleware, toggleWishlist);
 router.get("/getwishlist", authMiddleware, getWishlist);
+router.post("/movies/ask-ai", askMovieAi);
 
 export default router;

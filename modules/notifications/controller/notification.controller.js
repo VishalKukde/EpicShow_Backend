@@ -13,6 +13,10 @@ const serializeNotification = (notification) => ({
 
 export const getNotifications = async (req, res) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
     const unreadOnly = req.query.unread === "true";
     const rawLimit = Number(req.query.limit);
     const limit =
@@ -41,6 +45,10 @@ export const getNotifications = async (req, res) => {
 
 export const markNotificationsRead = async (req, res) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
     const ids = Array.isArray(req.body?.ids)
       ? req.body.ids.map((id) => String(id)).filter(Boolean)
       : [];
