@@ -11,7 +11,6 @@ const userCouponSchema = new mongoose.Schema(
     _id: {
       type: String,
       required: true,
-      index: true,
       trim: true,
     },
     code: {

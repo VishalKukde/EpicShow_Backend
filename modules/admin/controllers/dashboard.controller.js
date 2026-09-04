@@ -161,7 +161,13 @@ function baseBookingPipeline(config) {
         userEmail: { $ifNull: ["$userDoc.email", "No email"] },
         theater: { $ifNull: [config.theater, "Venue TBD"] },
         ticketCount: { $size: { $ifNull: ["$seatIds", []] } },
-        saleAmount: { $cond: [{ $eq: ["$status", "paid"] }, { $ifNull: ["$amount", 0] }, 0] },
+        saleAmount: {
+          $cond: [
+            { $not: [{ $in: ["$status", ["failed", "cancelled", "expired"]] }] },
+            { $ifNull: ["$amount", { $ifNull: ["$totalPrice", { $ifNull: ["$price", { $ifNull: ["$total", 0] }] }] }] },
+            0,
+          ],
+        },
         bookingTime: "$createdAt",
       },
     },
@@ -220,8 +226,13 @@ function sportBasePipeline() {
             "Stadium TBD",
           ],
         },
-        ticketCount: { $size: { $ifNull: ["$seatIds", []] } },
-        saleAmount: { $cond: [{ $eq: ["$status", "paid"] }, { $ifNull: ["$amount", 0] }, 0] },
+        saleAmount: {
+          $cond: [
+            { $not: [{ $in: ["$status", ["failed", "cancelled", "expired"]] }] },
+            { $ifNull: ["$amount", { $ifNull: ["$totalPrice", { $ifNull: ["$price", { $ifNull: ["$total", 0] }] }] }] },
+            0,
+          ],
+        },
         bookingTime: "$createdAt",
         showType: { $ifNull: ["$sportType", "sports"] },
       },
@@ -278,7 +289,13 @@ function trainBasePipeline() {
           ],
         },
         ticketCount: { $size: { $ifNull: ["$seats", []] } },
-        saleAmount: { $cond: [{ $eq: ["$status", "confirmed"] }, { $ifNull: ["$totalPrice", 0] }, 0] },
+        saleAmount: {
+          $cond: [
+            { $not: [{ $in: ["$status", ["failed", "cancelled", "expired"]] }] },
+            { $ifNull: ["$totalPrice", { $ifNull: ["$amount", 0] }] },
+            0,
+          ],
+        },
         bookingTime: "$createdAt",
         showType: "train",
         date: "$journeyDate",
@@ -340,6 +357,28 @@ function ordersBasePipeline() {
       },
     },
     { $unwind: { path: "$trainDoc", preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        movieItemIdObj: {
+          $convert: {
+            input: "$movieBooking.itemId",
+            to: "objectId",
+            onError: null,
+            onNull: null,
+          },
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: "movies",
+        localField: "movieItemIdObj",
+        foreignField: "_id",
+        as: "movieDoc",
+        pipeline: [{ $project: { name: 1, title: 1 } }],
+      },
+    },
+    { $unwind: { path: "$movieDoc", preserveNullAndEmptyArrays: true } },
     {
       $addFields: {
         userObjectId: {
@@ -456,7 +495,22 @@ function ordersBasePipeline() {
                     },
                   ],
                 },
-                { $ifNull: ["$title", { $ifNull: ["$booking.itemId", "Movie booking"] }] },
+                {
+                  $ifNull: [
+                    "$title",
+                    {
+                      $ifNull: [
+                        "$movieDoc.name",
+                        {
+                          $ifNull: [
+                            "$movieDoc.title",
+                            { $ifNull: ["$booking.movieName", "Movie booking"] },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
               ],
             },
           ],
@@ -553,14 +607,16 @@ async function syncCancelledTrainRefundPayments() {
   }));
 }
 
-async function typeStats(type) {
+async function typeStats(type, dateMatch = {}) {
   const pipeline = type === "sports"
     ? sportBasePipeline()
     : type === "trains"
       ? trainBasePipeline()
       : baseBookingPipeline(TYPE_CONFIG[type]);
   const collection = type === "sports" ? SportBooking : type === "trains" ? TrainBooking : TYPE_CONFIG[type].collection;
+  const matchStage = Object.keys(dateMatch).length > 0 ? [{ $match: dateMatch }] : [];
   const [stats = {}] = await collection.aggregate([
+    ...matchStage,
     ...pipeline,
     {
       $group: {
@@ -588,6 +644,18 @@ export const getAdminDashboard = async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
   try {
+    const { startDate, endDate } = req.query;
+    const dateMatch = {};
+    if (startDate && endDate) {
+      const startD = new Date(startDate);
+      const endD = new Date(endDate);
+      if (!isNaN(startD.getTime()) && !isNaN(endD.getTime())) {
+        dateMatch.createdAt = { $gte: startD, $lte: endD };
+      }
+    }
+
+    const paymentMatchStage = Object.keys(dateMatch).length > 0 ? [{ $match: dateMatch }] : [];
+
     const [
       movieStats,
       eventStats,
@@ -602,18 +670,29 @@ export const getAdminDashboard = async (req, res) => {
       totalUsers,
       orderStats,
     ] = await Promise.all([
-      typeStats("movies"),
-      typeStats("events"),
-      typeStats("gaming"),
-      typeStats("sports"),
-      typeStats("trains"),
+      typeStats("movies", dateMatch),
+      typeStats("events", dateMatch),
+      typeStats("gaming", dateMatch),
+      typeStats("sports", dateMatch),
+      typeStats("trains", dateMatch),
       Event.countDocuments({ endDateTime: { $gte: new Date() } }),
       Gaming.countDocuments({ endDateTime: { $gte: new Date() } }),
       Train.countDocuments({ isActive: true }),
       Booking.distinct("cinemaId", { showType: "movie", cinemaId: { $nin: [null, ""] } }),
       SportBooking.distinct("venue.id", { "venue.id": { $nin: [null, ""] } }),
-      User.countDocuments({}),
+      User.aggregate([
+        ...paymentMatchStage,
+        {
+          $group: {
+            _id: null,
+            totalUsers: { $sum: 1 },
+            proUsers: { $sum: { $cond: [{ $eq: ["$membership", "pro"] }, 1, 0] } },
+            freeUsers: { $sum: { $cond: [{ $ne: ["$membership", "pro"] }, 1, 0] } },
+          },
+        },
+      ]),
       Payment.aggregate([
+        ...paymentMatchStage,
         {
           $group: {
             _id: null,
@@ -636,42 +715,114 @@ export const getAdminDashboard = async (req, res) => {
 
     const totalBookings = categories.reduce((sum, item) => sum + item.totalBookings, 0);
     const revenue = categories.reduce((sum, item) => sum + item.totalSales, 0);
-    const pendingRefunds = categories.reduce((sum, item) => sum + item.refunds, 0);
+    const pendingRefunds = categories.reduce((sum, item) => sum + (item.refunds || 0), 0);
     const orders = orderStats[0] || {};
+    const usersObj = (totalUsers && totalUsers[0]) ? totalUsers[0] : { totalUsers: 0, freeUsers: 0, proUsers: 0 };
 
     const currentYear = new Date().getFullYear();
     const yearStart = new Date(currentYear, 0, 1);
     const nextYearStart = new Date(currentYear + 1, 0, 1);
-    const paidMonthly = await Payment.aggregate([
-      {
-        $match: {
-          paymentFor: "booking",
-          status: "success",
-          createdAt: { $gte: yearStart, $lt: nextYearStart },
+
+    const getMonthlyCategory = async (collection, dateMatchField = "createdAt", extraMatch = {}) => {
+      return collection.aggregate([
+        {
+          $match: {
+            [dateMatchField]: { $gte: yearStart, $lt: nextYearStart },
+            ...extraMatch,
+          },
         },
-      },
-      {
-        $group: {
-          _id: {
-            $toInt: {
-              $dateToString: {
-                date: "$createdAt",
-                format: "%m",
-                timezone: "Asia/Kolkata",
+        {
+          $group: {
+            _id: {
+              $toInt: {
+                $dateToString: {
+                  date: `$${dateMatchField}`,
+                  format: "%m",
+                  timezone: "Asia/Kolkata",
+                },
               },
             },
+            sales: { $sum: { $ifNull: ["$saleAmount", { $ifNull: ["$totalPrice", 0] }] } },
+            count: { $sum: 1 },
           },
-          revenue: { $sum: { $ifNull: ["$amount", 0] } },
         },
-      },
+      ]);
+    };
+
+    const [monthlyPaymentAgg, movieM, sportM, gamingM, trainM] = await Promise.all([
+      Payment.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: yearStart, $lt: nextYearStart },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $toInt: {
+                $dateToString: {
+                  date: "$createdAt",
+                  format: "%m",
+                  timezone: "Asia/Kolkata",
+                },
+              },
+            },
+            paidAmount: {
+              $sum: { $cond: [{ $eq: ["$status", "success"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+            failedAmount: {
+              $sum: { $cond: [{ $eq: ["$status", "failed"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+            refundedAmount: {
+              $sum: { $cond: [{ $in: ["$status", ["refunded", "refund_initiated", "cancelled"]] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+            paidCount: {
+              $sum: { $cond: [{ $eq: ["$status", "success"] }, 1, 0] },
+            },
+            failedCount: {
+              $sum: { $cond: [{ $eq: ["$status", "failed"] }, 1, 0] },
+            },
+            refundedCount: {
+              $sum: { $cond: [{ $in: ["$status", ["refunded", "refund_initiated", "cancelled"]] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+      getMonthlyCategory(Booking, "createdAt", { showType: "movie", status: { $nin: ["cancelled", "failed", "expired"] } }),
+      getMonthlyCategory(SportBooking, "createdAt", { status: { $nin: ["cancelled", "failed"] } }),
+      getMonthlyCategory(Booking, "createdAt", { showType: "gaming", status: { $nin: ["cancelled", "failed"] } }),
+      getMonthlyCategory(TrainBooking, "createdAt", { status: { $nin: ["cancelled", "failed"] } }),
     ]);
 
     const monthlyRevenue = Array.from({ length: 12 }, (_, index) => {
       const month = index + 1;
-      const value = paidMonthly.find((item) => item._id === month)?.revenue || 0;
+      const p = monthlyPaymentAgg.find((item) => item._id === month) || {};
+      const mM = movieM.find((item) => item._id === month) || {};
+      const sM = sportM.find((item) => item._id === month) || {};
+      const gM = gamingM.find((item) => item._id === month) || {};
+      const tM = trainM.find((item) => item._id === month) || {};
+
+      const catSales = (mM.sales || 0) + (sM.sales || 0) + (gM.sales || 0) + (tM.sales || 0);
+      const catCount = (mM.count || 0) + (sM.count || 0) + (gM.count || 0) + (tM.count || 0);
+
+      const paidRev = p.paidAmount || catSales;
+      const paidCnt = p.paidCount || catCount;
+
       return {
         month: new Date(currentYear, index, 1).toLocaleString("en-IN", { month: "short" }),
-        revenue: money(value),
+        revenue: money(paidRev),
+        paidCount: paidCnt,
+        failedCount: p.failedCount || 0,
+        refundedCount: p.refundedCount || 0,
+        paidAmount: money(paidRev),
+        failedAmount: money(p.failedAmount || 0),
+        refundedAmount: money(p.refundedAmount || 0),
+        byCategory: {
+          movies: { sales: money(mM.sales || 0), count: mM.count || 0 },
+          sports: { sales: money(sM.sales || 0), count: sM.count || 0 },
+          gaming: { sales: money(gM.sales || 0), count: gM.count || 0 },
+          trains: { sales: money(tM.sales || 0), count: tM.count || 0 },
+        },
       };
     });
 
@@ -683,7 +834,9 @@ export const getAdminDashboard = async (req, res) => {
           revenue,
           pendingRefunds,
           activeVenues: activeEvents + activeGaming + activeTrains + movieVenues.length + sportVenues.length,
-          totalUsers,
+          totalUsers: usersObj.totalUsers || 0,
+          freeUsers: usersObj.freeUsers || 0,
+          proUsers: usersObj.proUsers || 0,
           totalOrders: orders.totalOrders || 0,
           paidOrders: orders.paidOrders || 0,
           failedOrders: orders.failedOrders || 0,
@@ -1074,8 +1227,8 @@ export const refundAdminOrder = async (req, res) => {
     const refund = isWalletPayment
       ? { id: `wallet_refund_${payment._id}_${Date.now()}` }
       : await razorpay.payments.refund(payment.paymentId, {
-          amount: Math.round(refundAmount * 100),
-        });
+        amount: Math.round(refundAmount * 100),
+      });
 
     const session = await Payment.db.startSession();
     let walletBalance = 0;
