@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import mongoose from "mongoose";
+import Coupon from "../model/Coupon.js";
 import UserCoupon from "../model/UserCoupon.js";
 import {
   calculateOfferDiscount,
@@ -45,20 +47,67 @@ const generateCandidateCode = (prefix) => {
   return `${safePrefix}${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
 };
 
-const ensureCouponIsActiveDefinition = (couponDefinition) => {
-  if (!couponDefinition) {
-    throw createOfferError("Offer coupon not found", 404);
+export const resolveCouponDefinition = async (couponId, code) => {
+  const rawId = normalizeId(couponId);
+  const rawCode = toUpperCode(code);
+
+  if (!rawId && !rawCode) return null;
+
+  // 1. Try finding in MongoDB Coupon collection
+  let dbCoupon = null;
+  if (rawId && mongoose.Types.ObjectId.isValid(rawId)) {
+    dbCoupon = await Coupon.findById(rawId).lean();
+  }
+  if (!dbCoupon && rawCode) {
+    dbCoupon = await Coupon.findOne({ code: rawCode }).lean();
+  }
+  if (!dbCoupon && rawId) {
+    dbCoupon = await Coupon.findOne({ code: rawId.toUpperCase() }).lean();
   }
 
-  if (isOfferCouponExpired(couponDefinition)) {
-    throw createOfferError("This coupon is no longer available", 400);
+  if (dbCoupon) {
+    const validTillStr = new Date(dbCoupon.validTill).toISOString();
+    return {
+      _id: String(dbCoupon._id),
+      id: String(dbCoupon._id),
+      categoryId: dbCoupon.categoryId || "general",
+      categoryTitle: dbCoupon.categoryTitle || "General",
+      title: dbCoupon.title,
+      description: dbCoupon.description || "",
+      discountType: dbCoupon.discountType,
+      value: dbCoupon.value,
+      maxDiscount: dbCoupon.maxDiscount ?? null,
+      minAmount: dbCoupon.minAmount ?? 0,
+      validTill: validTillStr,
+      startDate: dbCoupon.startDate ? new Date(dbCoupon.startDate).toISOString() : new Date().toISOString(),
+      applicableBookingTypes: dbCoupon.applicableBookingTypes || ["movie", "event", "sport", "gaming"],
+      codePrefix: dbCoupon.code,
+      status: dbCoupon.status || "active",
+      discountLabel:
+        dbCoupon.discountLabel ||
+        (dbCoupon.discountType === "PERCENT"
+          ? `${dbCoupon.value}% OFF${dbCoupon.maxDiscount ? ` up to ₹${dbCoupon.maxDiscount}` : ""}`
+          : `₹${dbCoupon.value} OFF`),
+      conditions: dbCoupon.conditions || [],
+      isDbCoupon: true,
+      mongoCouponId: dbCoupon._id,
+    };
   }
+
+  // 2. Try static catalog
+  const catalogDef = getOfferCouponDefinition(rawId);
+  return catalogDef;
 };
 
 const buildEligibility = ({ couponDefinition, status, amount, bookingType }) => {
   if (status !== USER_COUPON_STATUS.ACTIVE) {
+    const isDeactivated = couponDefinition.status && couponDefinition.status !== "active";
     const reason =
-      status === USER_COUPON_STATUS.USED ? "Already used" : "Expired";
+      status === USER_COUPON_STATUS.USED
+        ? "Already used"
+        : isDeactivated
+        ? "Coupon is currently inactive"
+        : "Expired";
 
     return {
       isEligible: false,
@@ -95,16 +144,15 @@ const buildEligibility = ({ couponDefinition, status, amount, bookingType }) => 
   };
 };
 
-const serializeCollectedCoupon = (userCoupon, options = {}) => {
-  const couponDefinition = getOfferCouponDefinition(userCoupon._id);
-
+const serializeCollectedCoupon = (userCoupon, couponDefinition, options = {}) => {
   if (!couponDefinition) {
     return null;
   }
 
+  const isDeactivated = couponDefinition.status && couponDefinition.status !== "active";
+  const isExpired = isDeactivated || new Date(couponDefinition.validTill).getTime() < Date.now();
   const resolvedStatus =
-    userCoupon.status === USER_COUPON_STATUS.ACTIVE &&
-    isOfferCouponExpired(couponDefinition)
+    userCoupon.status === USER_COUPON_STATUS.ACTIVE && isExpired
       ? USER_COUPON_STATUS.EXPIRED
       : userCoupon.status;
 
@@ -121,14 +169,16 @@ const serializeCollectedCoupon = (userCoupon, options = {}) => {
   });
 
   return {
+    ...couponDefinition,
     id: normalizeId(userCoupon._id),
-    _id: userCoupon._id,
-    code: userCoupon.code,
+    _id: normalizeId(userCoupon._id),
+    couponId: normalizeId(userCoupon.couponId || couponDefinition._id),
+    code: userCoupon.code || couponDefinition.code || couponDefinition.codePrefix,
     status: resolvedStatus,
+    allocatedAt: userCoupon.allocatedAt,
     collectedAt: userCoupon.collectedAt,
     usedAt: userCoupon.usedAt,
     usedBookingId: userCoupon.usedBookingId,
-    ...couponDefinition,
     ...eligibility,
   };
 };
@@ -140,9 +190,21 @@ export const syncExpiredCouponsForUser = async (userId, options = {}) => {
     return;
   }
 
-  const expiredCouponIds = getExpiredOfferCouponIds();
+  const expiredCatalogIds = getExpiredOfferCouponIds();
+  const now = new Date();
 
-  if (!expiredCouponIds.length) {
+  // Find expired DB coupons
+  const expiredDbCoupons = await Coupon.find({
+    validTill: { $lt: now },
+  }).select("_id").lean();
+  const expiredDbCouponIds = expiredDbCoupons.map((c) => c._id);
+
+  const allExpiredCouponIds = [
+    ...expiredCatalogIds,
+    ...expiredDbCouponIds,
+  ];
+
+  if (!allExpiredCouponIds.length) {
     return;
   }
 
@@ -150,7 +212,7 @@ export const syncExpiredCouponsForUser = async (userId, options = {}) => {
     {
       userId: normalizedUserId,
       status: USER_COUPON_STATUS.ACTIVE,
-      couponId: { $in: expiredCouponIds },
+      couponId: { $in: allExpiredCouponIds },
     },
     {
       $set: {
@@ -177,31 +239,47 @@ const generateUniqueCouponCode = async (couponDefinition) => {
 
 export const collectCouponForUser = async (userId, couponId) => {
   const normalizedUserId = normalizeId(userId);
-  const couponDefinition = getOfferCouponDefinition(couponId);
 
   if (!normalizedUserId) {
     throw createOfferError("Missing user id", 400);
   }
 
-  ensureCouponIsActiveDefinition(couponDefinition);
+  const couponDefinition = await resolveCouponDefinition(couponId);
+  if (!couponDefinition) {
+    throw createOfferError("Offer coupon not found", 404);
+  }
+
+  if (couponDefinition.status && couponDefinition.status !== "active") {
+    throw createOfferError("This coupon is currently inactive", 400);
+  }
+
+  if (new Date(couponDefinition.validTill).getTime() < Date.now()) {
+    throw createOfferError("This coupon is no longer available", 400);
+  }
+
   await syncExpiredCouponsForUser(normalizedUserId);
 
+  const resolvedCouponId = couponDefinition._id || couponDefinition.id;
   const existing = await UserCoupon.findOne({
     userId: normalizedUserId,
-    _id: couponDefinition._id,
+    couponId: resolvedCouponId,
   });
-  
+
   if (existing) {
     return {
       alreadyCollected: true,
-      coupon: serializeCollectedCoupon(existing),
+      coupon: serializeCollectedCoupon(existing, couponDefinition),
     };
   }
 
-  const code = await generateUniqueCouponCode(couponDefinition);
+  const code =
+    couponDefinition.code ||
+    couponDefinition.codePrefix ||
+    (await generateUniqueCouponCode(couponDefinition));
+
   const created = await UserCoupon.create({
     userId: normalizedUserId,
-    _id: couponDefinition._id,
+    couponId: resolvedCouponId,
     code,
     status: USER_COUPON_STATUS.ACTIVE,
     collectedAt: new Date(),
@@ -209,7 +287,7 @@ export const collectCouponForUser = async (userId, couponId) => {
 
   return {
     alreadyCollected: false,
-    coupon: serializeCollectedCoupon(created),
+    coupon: serializeCollectedCoupon(created, couponDefinition),
   };
 };
 
@@ -227,14 +305,21 @@ export const getCollectedCouponsForUser = async (userId, options = {}) => {
   });
   const coupons = await applySession(query, options.session);
 
-  const serializedCoupons = coupons
-    .map((coupon) =>
-      serializeCollectedCoupon(coupon, {
-        amount: options.amount,
-        bookingType: options.bookingType,
+  const serializedCoupons = (
+    await Promise.all(
+      coupons.map(async (userCoupon) => {
+        const def = await resolveCouponDefinition(
+          userCoupon.couponId || userCoupon._id,
+          userCoupon.code
+        );
+        if (!def) return null;
+        return serializeCollectedCoupon(userCoupon, def, {
+          amount: options.amount,
+          bookingType: options.bookingType,
+        });
       })
     )
-    .filter(Boolean);
+  ).filter(Boolean);
 
   const grouped = {
     ACTIVE: serializedCoupons.filter((coupon) => coupon.status === USER_COUPON_STATUS.ACTIVE),
@@ -286,21 +371,30 @@ const findRequestedUserCoupon = async ({ userId, couponInput, session }) => {
     throw createOfferError("Invalid coupon selection", 400);
   }
 
-  const filters = [{ userId: normalizedUserId }];
-
+  const orFilters = [];
   if (requestedId) {
-    filters.push({ _id: requestedId });
+    if (mongoose.Types.ObjectId.isValid(requestedId)) {
+      orFilters.push({ _id: requestedId });
+    }
+    orFilters.push({ couponId: requestedId });
   }
 
   if (requestedCode) {
-    filters.push({ code: requestedCode });
+    orFilters.push({ code: requestedCode });
   }
 
   if (requestedCouponId) {
-    filters.push({ couponId: requestedCouponId });
+    if (mongoose.Types.ObjectId.isValid(requestedCouponId)) {
+      orFilters.push({ couponId: requestedCouponId });
+    } else {
+      orFilters.push({ couponId: requestedCouponId });
+    }
   }
 
-  const query = UserCoupon.findOne({ $and: filters });
+  const query = UserCoupon.findOne({
+    userId: normalizedUserId,
+    $or: orFilters,
+  });
   return applySession(query, session);
 };
 
@@ -333,16 +427,22 @@ export const resolveCouponApplication = async ({
     throw createOfferError("Collect this coupon before applying it", 404);
   }
 
-  const couponDefinition = getOfferCouponDefinition(userCoupon._id);
+  const couponDefinition = await resolveCouponDefinition(
+    userCoupon.couponId || userCoupon._id,
+    userCoupon.code
+  );
 
   if (!couponDefinition) {
     throw createOfferError("This coupon is no longer available", 404);
   }
 
-  if (
-    userCoupon.status === USER_COUPON_STATUS.ACTIVE &&
-    isOfferCouponExpired(couponDefinition)
-  ) {
+  const isDeactivated = couponDefinition.status && couponDefinition.status !== "active";
+  if (isDeactivated) {
+    throw createOfferError("This coupon is currently inactive", 400);
+  }
+
+  const isExpired = new Date(couponDefinition.validTill).getTime() < Date.now();
+  if (userCoupon.status === USER_COUPON_STATUS.ACTIVE && isExpired) {
     userCoupon.status = USER_COUPON_STATUS.EXPIRED;
     await userCoupon.save({ session });
     throw createOfferError("Coupon has expired", 400);
@@ -384,7 +484,7 @@ export const resolveCouponApplication = async ({
   }
 
   return {
-    couponId: couponDefinition.id,
+    couponId: couponDefinition.id || couponDefinition._id,
     userCouponId: normalizeId(userCoupon._id),
     code: userCoupon.code,
     discountAmount,
@@ -406,10 +506,17 @@ export const markCollectedCouponUsed = async ({
   const normalizedCouponId = normalizeId(couponId);
   const normalizedBookingId = normalizeId(bookingId);
 
+  const orFilters = [];
+  if (mongoose.Types.ObjectId.isValid(normalizedCouponId)) {
+    orFilters.push({ _id: normalizedCouponId });
+  }
+  orFilters.push({ couponId: normalizedCouponId });
+  orFilters.push({ code: normalizedCouponId.toUpperCase() });
+
   const userCoupon = await applySession(
     UserCoupon.findOne({
-      _id: normalizedCouponId,
       userId: normalizedUserId,
+      $or: orFilters,
     }),
     session
   );
@@ -418,9 +525,15 @@ export const markCollectedCouponUsed = async ({
     throw createOfferError("Collected coupon not found", 404);
   }
 
-  const couponDefinition = getOfferCouponDefinition(userCoupon._id);
+  const couponDefinition = await resolveCouponDefinition(
+    userCoupon.couponId || userCoupon._id,
+    userCoupon.code
+  );
 
-  if (!couponDefinition || isOfferCouponExpired(couponDefinition)) {
+  const isExpired =
+    !couponDefinition || new Date(couponDefinition.validTill).getTime() < Date.now();
+
+  if (!couponDefinition || isExpired) {
     userCoupon.status = USER_COUPON_STATUS.EXPIRED;
     await userCoupon.save({ session });
     throw createOfferError("Coupon has expired", 400);
@@ -438,6 +551,15 @@ export const markCollectedCouponUsed = async ({
   userCoupon.usedAt = new Date();
   userCoupon.usedBookingId = normalizedBookingId || null;
   await userCoupon.save({ session });
+
+  // Increment usedCount on DB Coupon if applicable
+  if (couponDefinition.isDbCoupon && couponDefinition.mongoCouponId) {
+    await Coupon.findByIdAndUpdate(
+      couponDefinition.mongoCouponId,
+      { $inc: { usedCount: 1 } },
+      { session }
+    );
+  }
 
   return userCoupon;
 };

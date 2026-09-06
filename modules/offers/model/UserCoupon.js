@@ -8,23 +8,27 @@ const userCouponSchema = new mongoose.Schema(
       index: true,
       trim: true,
     },
-    _id: {
-      type: String,
+    couponId: {
+      type: mongoose.Schema.Types.Mixed,
       required: true,
-      trim: true,
+      index: true,
     },
     code: {
       type: String,
       required: true,
-      unique: true,
       uppercase: true,
       trim: true,
+      index: true,
     },
     status: {
       type: String,
       enum: ["ACTIVE", "USED", "EXPIRED"],
       default: "ACTIVE",
       index: true,
+    },
+    allocatedAt: {
+      type: Date,
+      default: null,
     },
     collectedAt: {
       type: Date,
@@ -43,6 +47,6 @@ const userCouponSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-userCouponSchema.index({ userId: 1 }, { unique: true });
+userCouponSchema.index({ userId: 1, couponId: 1 }, { unique: true });
 
 export default mongoose.model("UserCoupon", userCouponSchema);
