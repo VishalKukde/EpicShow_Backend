@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../modules/user/model/User.js";
+import UserSession from "../modules/user/model/UserSession.js";
 
 export default async function requireAccessToken(req, res, next) {
   const authorization = req.headers.authorization || "";
@@ -18,6 +19,19 @@ export default async function requireAccessToken(req, res, next) {
 
     if (!user || tokenVersion !== Number(user.tokenVersion ?? 0)) {
       return res.status(401).json({ message: "Access token expired. Please login again." });
+    }
+
+    if (decoded.sessionId) {
+      const session = await UserSession.findOne({
+        sessionId: decoded.sessionId,
+        userId: user._id,
+      });
+
+      if (!session || session.status === "revoked") {
+        return res.status(401).json({ message: "Session has been revoked. Please login again." });
+      }
+
+      req.sessionId = decoded.sessionId;
     }
 
     req.user = user;

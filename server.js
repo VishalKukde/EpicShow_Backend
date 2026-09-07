@@ -33,7 +33,7 @@ import { initializeChatSocket } from "./modules/chat/socket/chat.socket.js";
 import { initializeShowSocket } from "./modules/movies/socket/show.socket.js";
 import errorHandler from "./middleware/error.middleware.js";
 import { getRedisClient } from "./config/redis.js";
-import refundRoutes from "./modules/refunds/routes/refund.routes.js" 
+import refundRoutes from "./modules/refunds/routes/refund.routes.js"
 import subscriptionRoutes from "./modules/subscription/routes/subscription.routes.js";
 import { handleRazorpaySubscriptionWebhook } from "./modules/subscription/controller/subscription.controller.js";
 import { startSubscriptionExpiryJob } from "./modules/subscription/jobs/subscription-expiry.job.js";
@@ -61,7 +61,7 @@ const envOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
-const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins,  "https://epicshow.vercel.app"])];
+const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins, "https://epicshow.vercel.app"])];
 const isProd = process.env.NODE_ENV === "production";
 
 function isPrivateLanOrigin(origin) {
