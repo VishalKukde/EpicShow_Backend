@@ -33,6 +33,12 @@ const userSchema = new mongoose.Schema(
       type: String,
     },
 
+    status: {
+      type: String,
+      enum: ["Active", "Suspended", "Deactivated"],
+      default: "Active",
+    },
+
     role: {
       type: String,
       enum: ["user", "organizer", "admin"],
@@ -90,8 +96,8 @@ const userSchema = new mongoose.Schema(
 
         disabledMethods: {
           card: { type: Boolean, default: false },
-          upi: {type: Boolean, default: false},
-          wallet: {type: Boolean, default: false},
+          upi: { type: Boolean, default: false },
+          wallet: { type: Boolean, default: false },
         },
       }
     },

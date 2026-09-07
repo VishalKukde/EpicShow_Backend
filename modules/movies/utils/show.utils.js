@@ -6,6 +6,11 @@ const MAX_LOCK_TTL_SECONDS = 10 * 60;
 
 const clampNumber = (value, min, max) => Math.min(Math.max(value, min), max);
 
+const PREMIUM_ROWS = new Set(["H", "I", "J"]);
+
+export const getSeatPrice = (rowLabel, basePrice) =>
+  PREMIUM_ROWS.has(rowLabel) ? 320 : basePrice;
+
 export const normalizeString = (value) =>
   typeof value === "string" ? value.trim() : "";
 

@@ -406,7 +406,7 @@ export const verifyPayment = async (req, res) => {
 
     const canEarnReward =
       Number(booking.rewardPointsRedeemed || 0) === 0 &&
-      Number(booking.amount || 0) >= 450;
+      Number(booking.amount || 0) > 0;
     const earningUser = canEarnReward
       ? await User.findById(booking.userId).select("membership").session(session)
       : null;
@@ -613,7 +613,7 @@ export const payWithWallet = async (req, res) => {
 
     const canEarnReward =
       Number(booking.rewardPointsRedeemed || 0) === 0 &&
-      Number(booking.amount || 0) >= 450;
+      Number(booking.amount || 0) > 0;
     const rewardEarnRate = getRewardEarnRateForMembership(
       REWARD_EARN_RATE,
       user.membership

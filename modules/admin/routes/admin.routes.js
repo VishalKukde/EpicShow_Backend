@@ -6,6 +6,7 @@ import {
   getAdminOrders,
   getAdminUsers,
   refundAdminOrder,
+  updateUserStatus,
 } from "../controllers/dashboard.controller.js";
 import {
   allocateCouponToUsers,
@@ -23,6 +24,8 @@ router.get("/dashboard", authMiddleware, getAdminDashboard);
 router.get("/bookings/:type", authMiddleware, getAdminBookings);
 router.get("/orders", authMiddleware, getAdminOrders);
 router.get("/users", authMiddleware, getAdminUsers);
+router.patch("/users/status", authMiddleware, updateUserStatus);
+router.patch("/users/:userId/status", authMiddleware, updateUserStatus);
 router.patch("/orders/:id/refund", authMiddleware, refundAdminOrder);
 
 // Admin Coupon Management

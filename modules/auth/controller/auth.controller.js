@@ -40,11 +40,14 @@ export const login = asyncHandler(async (req, res) => {
         return res.status(401).json({ message: "Invalid credentials" });
     }
 
-
     const isMatch = await user.comparePassword(password);
 
     if (!isMatch) {
         return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (user.status === "Suspended" || user.status === "Deactivated") {
+        return res.status(403).json({ message: "Your account is suspended" });
     }
 
     const accessToken = generateAccessToken(user, "15m")
@@ -74,6 +77,7 @@ export const login = asyncHandler(async (req, res) => {
             email: user.email,
             avatar: user.avatar,
             phone: user.phone,
+            status: user.status || "Active",
             lastLogin: user.lastLogin,
             role: user.role,
             membership: user.membership,
@@ -103,6 +107,10 @@ export const refresh = asyncHandler(async (req, res) => {
         return res.status(403).json({ message: "Invalid refresh token" });
     }
 
+    if (user.status === "Suspended" || user.status === "Deactivated") {
+        return res.status(403).json({ message: "Your account is suspended" });
+    }
+
     const tokenVersion = Number(decoded?.tokenVersion ?? 0);
     if (tokenVersion !== Number(user.tokenVersion ?? 0)) {
         return res.status(403).json({ message: "Refresh token expired. Please login again." });
@@ -120,6 +128,7 @@ export const refresh = asyncHandler(async (req, res) => {
             email: user.email,
             avatar: user.avatar,
             phone: user.phone,
+            status: user.status || "Active",
             lastLogin: user.lastLogin,
             role: user.role,
             membership: user.membership,

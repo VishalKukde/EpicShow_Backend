@@ -1141,6 +1141,7 @@ export const getAdminUsers = async (req, res) => {
                 avatar: 1,
                 role: 1,
                 membership: 1,
+                status: { $ifNull: ["$status", "Active"] },
                 walletBalance: 1,
                 preferences: 1,
                 rewardPoints: 1,
@@ -1343,5 +1344,57 @@ export const refundAdminOrder = async (req, res) => {
     console.error("Admin refund error:", error);
     const status = error.message === "Order already refunded" ? 400 : 500;
     res.status(status).json({ success: false, message: error.message || "Failed to refund order" });
+  }
+};
+
+export const updateUserStatus = async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const { userId } = req.params;
+    const { status, email } = req.body || {};
+
+    if (!["Active", "Suspended", "Deactivated"].includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid status value" });
+    }
+
+    let user;
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      user = await User.findById(userId);
+    } else if (email) {
+      user = await User.findOne({ email: String(email).toLowerCase().trim() });
+    }
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const reqUser = req.user;
+    if (reqUser?.email && user.email?.toLowerCase() === reqUser.email.toLowerCase()) {
+      return res.status(403).json({ success: false, message: "You cannot change your own admin account status" });
+    }
+    if (user.role === "admin" && status !== "Active") {
+      return res.status(403).json({ success: false, message: "Admin accounts cannot be suspended or deactivated" });
+    }
+
+    user.status = status;
+    if (status === "Suspended" || status === "Deactivated") {
+      user.refreshToken = null;
+      user.tokenVersion = (user.tokenVersion || 0) + 1;
+    }
+    await user.save();
+
+    res.json({
+      success: true,
+      message: `User status updated to ${status}`,
+      user: {
+        id: user._id,
+        email: user.email,
+        status: user.status,
+      },
+    });
+  } catch (error) {
+    console.error("Update user status error:", error);
+    res.status(500).json({ success: false, message: "Failed to update user status" });
   }
 };

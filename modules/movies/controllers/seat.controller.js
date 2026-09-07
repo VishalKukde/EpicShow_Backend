@@ -7,13 +7,8 @@ import {
   releaseSeatLocks,
 } from "../services/seat-lock.service.js";
 import { emitSeatLocked, emitSeatUnlocked } from "../socket/show.socket.js";
-import { buildShowId, normalizeString, toIdString } from "../utils/show.utils.js";
+import { buildShowId, getSeatPrice, normalizeString, toIdString } from "../utils/show.utils.js";
 import { getTicketLimitForMembership } from "../../subscription/service/pro-perks.service.js";
-
-const PREMIUM_ROWS = new Set(["H", "I", "J"]);
-
-const getSeatPrice = (rowLabel, basePrice) =>
-  PREMIUM_ROWS.has(rowLabel) ? 320 : basePrice;
 
 const mapSeatLayoutPreview = (cinema) => ({
   id: toIdString(cinema._id),

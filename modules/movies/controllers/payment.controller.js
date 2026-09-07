@@ -28,7 +28,7 @@ import {
   withPaymentIdempotency,
 } from "../services/booking-finalization.service.js";
 import { assertSeatLocksOwnedByUser } from "../services/seat-lock.service.js";
-import { buildShowId, normalizeString, toIdString } from "../utils/show.utils.js";
+import { buildShowId, getSeatPrice, normalizeString, toIdString } from "../utils/show.utils.js";
 
 const MIN_REWARD_POINTS_TO_ELIGIBLE = 150;
 const REWARD_REDEEM_POINTS = 100;
@@ -155,7 +155,7 @@ const calculateMovieSeatTotal = (cinema, seatIds = []) => {
         return total;
       }
 
-      return total + Number(seat.price || 0);
+      return total + Number(getSeatPrice(row.row, seat.price) || 0);
     }, 0);
 
     return grandTotal + rowTotal;
@@ -620,7 +620,7 @@ export const verifyPayment = async (req, res) => {
 
           const canEarnReward =
             Number(booking.rewardPointsRedeemed || 0) === 0 &&
-            Number(booking.amount || 0) >= 450;
+            Number(booking.amount || 0) > 0;
           const earningUser = canEarnReward
             ? await User.findById(booking.userId).select("membership").session(session)
             : null;
@@ -907,7 +907,7 @@ export const payWithWallet = async (req, res) => {
 
           const canEarnReward =
             Number(booking.rewardPointsRedeemed || 0) === 0 &&
-            Number(booking.amount || 0) >= 450;
+            Number(booking.amount || 0) > 0;
           const rewardEarnRate = getRewardEarnRateForMembership(
             REWARD_EARN_RATE,
             user.membership
@@ -1388,9 +1388,9 @@ export const getPaymentTransactions = async (req, res) => {
           showType: sportShowType,
           booking: row.booking
             ? {
-                ...row.booking,
-                showType: sportShowType,
-              }
+              ...row.booking,
+              showType: sportShowType,
+            }
             : row.booking,
         };
       });
