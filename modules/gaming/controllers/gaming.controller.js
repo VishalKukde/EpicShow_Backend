@@ -165,3 +165,57 @@ export const createGaming = async (req, res) => {
     return res.status(500).json({ message: err.message || "Failed to create gaming show" });
   }
 };
+
+export const deleteGaming = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Gaming.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Gaming event not found" });
+    }
+    return res.json({ message: "Gaming event deleted successfully from database", id });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || "Failed to delete gaming event" });
+  }
+};
+
+export const updateGaming = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = { ...req.body };
+
+    if (updateData.startDateTime) {
+      updateData.startDateTime = new Date(updateData.startDateTime);
+    }
+    if (updateData.endDateTime) {
+      updateData.endDateTime = new Date(updateData.endDateTime);
+    }
+    if (updateData.price !== undefined) {
+      updateData.price = Number(updateData.price);
+    }
+    if (updateData.totalSeats !== undefined) {
+      updateData.totalSeats = Number(updateData.totalSeats);
+    }
+    if (updateData.availableSeats !== undefined) {
+      updateData.availableSeats = Number(updateData.availableSeats);
+    }
+    if (updateData.imageUrl) {
+      updateData.imageUrl = normalizeImageUrl(updateData.imageUrl);
+    }
+
+    const updated = await Gaming.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ message: "Gaming event not found" });
+    }
+
+    return res.json(updated);
+  } catch (err) {
+    return res.status(500).json({ message: err.message || "Failed to update gaming event" });
+  }
+};
+
+

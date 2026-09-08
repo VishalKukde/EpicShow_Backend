@@ -209,3 +209,18 @@ export const createMovie = async (req, res) => {
     return res.status(500).json({ message: err.message || "Failed to create movie" });
   }
 };
+
+export const deleteMovie = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Movie.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Movie not found" });
+    }
+    await invalidateLatestReleasesCache();
+    return res.json({ message: "Movie deleted successfully", id });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || "Failed to delete movie" });
+  }
+};
+

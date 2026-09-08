@@ -1,5 +1,5 @@
 import express from "express";
-import { createMovie, getLatestReleases, getMovieById, getMovies, getUpcomingMovies } from "../controllers/movie.controller.js";
+import { createMovie, deleteMovie, getLatestReleases, getMovieById, getMovies, getUpcomingMovies } from "../controllers/movie.controller.js";
 import { createReview, getMovieReviews, getReviewForUser } from "../controllers/review.controller.js";
 import authMiddleware from "../../../middleware/auth.middleware.js";
 import { getWishlist, toggleWishlist } from "../controllers/wishlist.controller.js";
@@ -14,6 +14,7 @@ router.get("/movies/reviews", getMovieReviews);
 router.get("/reviews/me", authMiddleware, getReviewForUser);
 router.get("/movies/:id", getMovieById);
 router.post("/movies", authMiddleware, createMovie);
+router.delete("/movies/:id", authMiddleware, deleteMovie);
 router.post("/reviews", authMiddleware, createReview);
 router.post("/wishlist", authMiddleware, toggleWishlist);
 router.get("/getwishlist", authMiddleware, getWishlist);
