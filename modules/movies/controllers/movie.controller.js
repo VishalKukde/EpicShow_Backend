@@ -12,7 +12,7 @@ const buildLatestReleasesCacheKey = (limit) =>
 
 const loadLatestReleasesFromDb = (limit) =>
   Movie.find({
-    releaseDate: { $exists: true, $ne: null },
+    releaseDate: { $exists: true, $ne: null, $lte: new Date() },
   })
     .sort({ releaseDate: -1 })
     .limit(limit)
@@ -81,15 +81,35 @@ export const getMovies = async (req, res) => {
 export const getLatestReleases = async (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 20);
+    const now = new Date();
 
     const cachedMovies = await getLatestReleasesFromCache(limit);
     if (cachedMovies) {
-      return res.json(cachedMovies);
+      const validCached = cachedMovies.filter(
+        (m) => m.releaseDate && new Date(m.releaseDate) <= now
+      );
+      if (validCached.length === cachedMovies.length) {
+        return res.json(validCached);
+      }
     }
 
     const movies = await loadLatestReleasesFromDb(limit);
     await setLatestReleasesCache(limit, movies);
 
+    res.json(movies);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const getUpcomingMovies = async (req, res) => {
+  try {
+    const now = new Date();
+    const movies = await Movie.find({
+      releaseDate: { $gt: now },
+    })
+      .sort({ releaseDate: 1 })
+      .lean();
     res.json(movies);
   } catch (err) {
     res.status(500).json({ message: err.message });
