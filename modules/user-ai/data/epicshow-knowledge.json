@@ -1,0 +1,107 @@
+[
+  {
+    "id": "faq-account-tickets",
+    "category": "faqs",
+    "title": "Account, E-Tickets & QR Code Entry",
+    "keywords": ["ticket", "e-ticket", "qr code", "account", "entry", "confirmation", "sms", "email"],
+    "content": "All confirmed tickets on EpicShow are generated digitally as e-tickets with an encrypted QR code. You can find your tickets under Profile > Bookings or by checking your registered email and WhatsApp. At cinema halls, stadiums, gaming lounges, and railway stations, present the dynamic QR code on your mobile device for direct entry. No physical printout is required."
+  },
+  {
+    "id": "faq-booking-flow",
+    "category": "booking-process",
+    "title": "Step-by-Step Booking Process",
+    "keywords": ["how to book", "booking process", "steps", "seat selection", "checkout"],
+    "content": "To book on EpicShow: 1) Browse Movies, Sports, Gaming, or Trains from the home page or category portals. 2) Select your preferred title, date, venue/theatre, and showtime. 3) Choose your seats on the interactive real-time seat layout. 4) Apply any eligible promo coupons or redeem reward points. 5) Complete payment via UPI, Credit/Debit Card, Net Banking, or EpicShow Wallet. 6) Instant confirmation and QR ticket will be sent to your account immediately."
+  },
+  {
+    "id": "feat-realtime-seats",
+    "category": "features",
+    "title": "Interactive Real-Time Seat Selection & Lock",
+    "keywords": ["seat layout", "seat lock", "timer", "real-time seats", "seat map"],
+    "content": "EpicShow features an interactive live seat map powered by WebSockets. When you tap a seat, it is temporarily locked exclusively for you for 8 minutes to complete payment without anyone else taking your seat. If checkout is not finished before the countdown timer expires, the seats are automatically released."
+  },
+  {
+    "id": "feat-multi-category",
+    "category": "features",
+    "title": "EpicShow 4-in-1 Entertainment & Travel Portal",
+    "keywords": ["movies", "sports", "gaming", "trains", "all-in-one", "categories"],
+    "content": "EpicShow brings 4 major entertainment and travel categories into a unified experience: 1) Movies (latest blockbusters, regional cinema, IMAX, 4DX), 2) Sports (cricket matches, football leagues, esports tournaments), 3) Gaming Lounges (VR zones, PC gaming cafes, console stations), and 4) Trains (IRCTC train schedules, berth classes, and confirmed ticketing)."
+  },
+  {
+    "id": "movie-formats-theatres",
+    "category": "movie-discovery",
+    "title": "Movie Formats, Cinema Halls & Audio Experience",
+    "keywords": ["imax", "4dx", "dolby atmos", "3d", "2d", "cinema", "screen format"],
+    "content": "EpicShow partners with leading multiplex chains (PVR Inox, Cinepolis, MovieMax, Carnival) and independent premium single screens. You can filter screenings by formats including IMAX 3D, IMAX 2D, 4DX motion seats, Dolby Atmos surround sound, and Gold Class recliner lounges."
+  },
+  {
+    "id": "movie-genres-languages",
+    "category": "movie-discovery",
+    "title": "Movie Discovery by Language & Genre",
+    "keywords": ["genre", "language", "hindi", "english", "tamil", "telugu", "action", "comedy", "drama", "sci-fi"],
+    "content": "Explore movies across multiple languages (English, Hindi, Telugu, Tamil, Malayalam, Kannada, Marathi) and genres (Action, Sci-Fi, Horror, Romance, Thriller, Animation, Comedy, Drama). Each movie card features runtime, censor rating (U, UA, A), TMDB & user review ratings, and official trailers."
+  },
+  {
+    "id": "sports-events",
+    "category": "sports-events",
+    "title": "Sports Booking & Stadium Seating Guidelines",
+    "keywords": ["sports", "cricket", "football", "stadium", "match", "entry gate", "stand"],
+    "content": "Book tickets for live cricket tournaments, Indian football leagues, tennis opens, and marathon passes. Stadium layouts display stands (North, South, East, West Pavilions, VIP Hospitality Boxes). Please carry a valid government ID along with your digital ticket. Stadium gates typically open 2 to 3 hours before match commencement."
+  },
+  {
+    "id": "gaming-arenas",
+    "category": "gaming-events",
+    "title": "Gaming Lounges, VR Arenas & Esports Tournaments",
+    "keywords": ["gaming", "esports", "pc cafe", "vr arena", "ps5", "xbox", "lan", "tournament"],
+    "content": "EpicShow enables hourly slot reservations for high-end PC gaming cafes (RTX 4090 rigs, 240Hz monitors), VR simulators, and PlayStation 5 / Xbox Series X console zones. Gamers can also register solo or squad entries for competitive esports tournaments hosted across partner arenas."
+  },
+  {
+    "id": "trains-transport",
+    "category": "train-booking",
+    "title": "Train Booking, Berth Classes & Station Routes",
+    "keywords": ["train", "railway", "pnr", "berth", "sleeper", "ac 1st", "ac 2nd", "ac 3rd", "station"],
+    "content": "Book train journeys seamlessly across nationwide railway routes. Search by departure station, destination, and journey date. Available classes include 1A (AC First Class), 2A (AC 2 Tier), 3A (AC 3 Tier), and SL (Sleeper Class). Upon confirmation, your PNR number, coach number, and seat/berth allocation are displayed in your booking details."
+  },
+  {
+    "id": "payments-methods",
+    "category": "payments",
+    "title": "Supported Payment Methods & Security",
+    "keywords": ["payment", "upi", "google pay", "phonepe", "paytm", "credit card", "debit card", "netbanking", "wallet", "razorpay"],
+    "content": "EpicShow accepts all major payment methods through 256-bit encrypted Razorpay payment gateways: 1) UPI (Google Pay, PhonePe, Paytm, BHIM, Cred), 2) Visa, MasterCard, RuPay, and Amex credit/debit cards, 3) Net Banking from over 50 banks, and 4) EpicShow Wallet balance. Transactions are PCI-DSS compliant with zero card detail storage on our servers."
+  },
+  {
+    "id": "cancellation-policy",
+    "category": "cancellation-refunds",
+    "title": "Cancellation Window & Eligibility",
+    "keywords": ["cancellation", "cancel ticket", "refund policy", "time limit", "cancel booking"],
+    "content": "Movie tickets can be cancelled up to 2 hours before the scheduled showtime. Sports and gaming slots can be cancelled up to 12 hours prior to the slot start. Train tickets adhere to standard railway cancellation rules based on charting time. Bookings made with special non-refundable promotional discount codes cannot be cancelled."
+  },
+  {
+    "id": "refund-timeline-process",
+    "category": "cancellation-refunds",
+    "title": "Refund Timelines & Credit Modes",
+    "keywords": ["refund", "refund status", "how long refund takes", "money back", "wallet refund"],
+    "content": "When a booking is cancelled: 1) EpicShow Wallet refunds are credited instantly within 60 seconds. 2) UPI and Net Banking refunds take 1 to 3 business days. 3) Credit and Debit card refunds take 3 to 5 banking working days depending on your issuing bank. You can track real-time refund status under Profile > Refunds."
+  },
+  {
+    "id": "offers-coupons-rewards",
+    "category": "offers-coupons",
+    "title": "Promo Coupons, Pro Subscription & Reward Booster",
+    "keywords": ["coupons", "offers", "promo code", "discount", "pro subscription", "reward points"],
+    "content": "Save more on entertainment with: 1) Active coupons available under Profile > Offers (apply at checkout for up to 30% instant off). 2) EpicShow Pro Membership offering zero convenience fees, complimentary popcorn vouchers, and priority customer support. 3) Rewards Booster earning 5% back in reward points on every booking, redeemable 1:1 on future tickets."
+  },
+  {
+    "id": "theatre-venue-guidelines",
+    "category": "theatre-info",
+    "title": "Theatre Amenities, Food & Beverage, and Age Rules",
+    "keywords": ["popcorn", "food", "outside food", "age rating", "wheelchair", "amenities", "parking"],
+    "content": "Most partner theatres offer online food & beverage pre-booking delivered straight to your seat during intermission. Outside food and beverages are not permitted inside cinema auditoriums per venue regulations. Child admissions: Children aged 3 years and above require an individual ticket. Films rated 'A' (Adults Only) require patrons to be 18 years or older with valid age proof."
+  },
+  {
+    "id": "support-contact",
+    "category": "faqs",
+    "title": "Customer Support & Dispute Resolution",
+    "keywords": ["customer care", "helpdesk", "contact support", "report issue", "feedback"],
+    "content": "Our support team is available 24/7. You can reach out directly via Profile > Report Issue or start a live agent chat from Profile > Chat. For urgent payment deductions without ticket confirmation, amounts are automatically reconciled and refunded within 24 hours."
+  }
+]
