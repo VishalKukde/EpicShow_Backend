@@ -3,6 +3,9 @@ import MovieBooking from "../../movies/models/Booking.js";
 import TrainBooking from "../../trains/models/TrainBooking.js";
 import SportBooking from "../../sports/models/Booking.js";
 import Movie from "../../movies/models/Movie.js";
+import Sport from "../../sports/models/Sport.js";
+import Gaming from "../../gaming/models/Gaming.js";
+import Train from "../../trains/models/Train.js";
 import Payment from "../../movies/models/Payment.js";
 import UserCoupon from "../../offers/model/UserCoupon.js";
 import User from "../../user/model/User.js";
@@ -34,7 +37,7 @@ export async function getUserBookings(userId, category = null, limit = 5) {
     let formattedSportBookings = [];
     let formattedGamingBookings = [];
 
-    // 1. Movie bookings (only if category is 'movie', 'all', or unspecified)
+    // 1. Movie bookings (only if category is 'movie', 'movies', 'all', or unspecified)
     if (!catLower || catLower === "movie" || catLower === "movies" || catLower === "all") {
       const movieQuery = {
         userId: stringId,
@@ -82,9 +85,11 @@ export async function getUserBookings(userId, category = null, limit = 5) {
     // 2. Train bookings
     if (!catLower || catLower === "train" || catLower === "trains" || catLower === "all") {
       try {
-        const trainBookings = await TrainBooking.find({
-          userId,
-        })
+        const userQuery = mongoose.Types.ObjectId.isValid(stringId)
+          ? { $or: [{ userId: new mongoose.Types.ObjectId(stringId) }, { userId: stringId }] }
+          : { userId: stringId };
+
+        const trainBookings = await TrainBooking.find(userQuery)
           .populate("trainId", "trainName trainNumber fromStation toStation")
           .sort({ createdAt: -1 })
           .limit(limit)
@@ -99,7 +104,7 @@ export async function getUserBookings(userId, category = null, limit = 5) {
             pnr: tb.pnr || "N/A",
             title: train.trainName ? `${train.trainName} #${train.trainNumber || ""}` : "Train Journey",
             route: train.fromStation && train.toStation ? `${train.fromStation} ➔ ${train.toStation}` : "Express Route",
-            date: tb.journeyDate || "Scheduled Date",
+            date: tb.journeyDate ? new Date(tb.journeyDate).toLocaleDateString("en-IN") : "Scheduled Date",
             seats: tb.seats && tb.seats.length ? tb.seats.join(", ") : "Allocated Berth",
             amount: tb.totalPrice ? `₹${tb.totalPrice}` : "Paid",
             status: tb.status === "confirmed" || tb.status === "paid" ? "Confirmed" : tb.status || "Confirmed",
@@ -150,18 +155,36 @@ export async function getUserBookings(userId, category = null, limit = 5) {
           .limit(limit)
           .lean();
 
-        formattedGamingBookings = gamingBookings.map((gb) => ({
-          category: "gaming",
-          categoryLabel: "Gaming Lounge Slot",
-          bookingId: String(gb._id),
-          title: "VR & Gaming Lounge Pass",
-          date: gb.date || "Booked Slot",
-          slot: gb.slot || "Session Time",
-          seats: gb.seatIds && gb.seatIds.length ? gb.seatIds.join(", ") : "Rig / Console Station",
-          amount: gb.amount ? `₹${gb.amount}` : "Paid",
-          status: gb.status === "paid" ? "Confirmed" : gb.status || "Confirmed",
-          createdAt: gb.createdAt,
-        }));
+        formattedGamingBookings = await Promise.all(
+          gamingBookings.map(async (gb) => {
+            let title = "VR & Gaming Lounge Pass";
+            let venue = "Gaming Lounge";
+            if (gb.itemId) {
+              try {
+                const gameDoc = await Gaming.findById(gb.itemId).select("title venue city").lean();
+                if (gameDoc) {
+                  title = gameDoc.title || title;
+                  venue = gameDoc.venue ? `${gameDoc.venue}, ${gameDoc.city || ""}` : venue;
+                }
+              } catch {
+                // Ignore invalid ObjectId cast
+              }
+            }
+            return {
+              category: "gaming",
+              categoryLabel: "Gaming Lounge Slot",
+              bookingId: String(gb._id),
+              title,
+              venue,
+              date: gb.date || "Booked Slot",
+              slot: gb.slot || "Session Time",
+              seats: gb.seatIds && gb.seatIds.length ? gb.seatIds.join(", ") : "Station / Arena",
+              amount: gb.amount ? `₹${gb.amount}` : "Paid",
+              status: gb.status === "paid" ? "Confirmed" : gb.status || "Confirmed",
+              createdAt: gb.createdAt,
+            };
+          })
+        );
       } catch (gamingErr) {
         console.warn("[User AI Mongo] Error querying gaming bookings:", gamingErr.message);
       }
@@ -342,80 +365,392 @@ export async function getUserProfileAndWallet(userId) {
 }
 
 /**
- * Retrieve currently playing movie listings strictly from MongoDB database
- * @param {string} category
- * @param {number} limit - defaults to 3 movies
- * @param {string} sortBy - "latest" | "rating" | "best"
+ * Search movies strictly from MongoDB database
+ * Supports particular movie search, upcoming movies, currently playing, and top rated.
+ * ZERO placeholder/dummy data.
+ * @param {object} options
+ * @param {string|null} options.query - Title or keyword
+ * @param {string} options.type - "particular" | "upcoming" | "playing" | "top_rated" | "all"
+ * @param {number} options.limit
+ * @param {string} options.sortBy - "latest" | "rating" | "release"
  * @returns {Promise<object>}
  */
-export async function getUpcomingCatalog(category = "movies", limit = 3, sortBy = "latest") {
+export async function searchMoviesInDb({
+  query = null,
+  type = "all",
+  limit = 5,
+  sortBy = "latest",
+} = {}) {
   try {
     if (mongoose.connection.readyState !== 1) {
-      return {
-        category: "movies",
-        count: 0,
-        items: [],
-      };
+      return { found: false, count: 0, items: [], message: "Database not connected." };
     }
 
-    const sortCriteria =
-      sortBy === "rating" || sortBy === "best"
-        ? { avg_rating: -1, rating: -1, releaseDate: -1 }
-        : { releaseDate: -1, createdAt: -1 };
-
     const now = new Date();
-    // 1. Fetch currently playing movies (releaseDate <= now or unscheduled)
-    let movies = await Movie.find({
-      $or: [
+    let mongoQuery = {};
+    let sortCriteria = { releaseDate: -1, createdAt: -1 };
+
+    if (sortBy === "rating" || type === "top_rated") {
+      sortCriteria = { rating: -1, avg_rating: -1 };
+    } else if (type === "upcoming" || sortBy === "release") {
+      sortCriteria = { releaseDate: 1 };
+    }
+
+    // 1. Upcoming movies filter
+    if (type === "upcoming") {
+      mongoQuery.releaseDate = { $gt: now };
+    } else if (type === "playing") {
+      mongoQuery.$or = [
         { releaseDate: { $lte: now } },
         { releaseDate: { $exists: false } },
         { releaseDate: null },
-      ],
-    })
+      ];
+    } else if (type === "top_rated") {
+      mongoQuery.rating = { $gt: 0 };
+    }
+
+    // 2. Specific search term / particular movie filter
+    if (query && typeof query === "string" && query.trim()) {
+      const cleanQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").trim();
+      const searchOr = [
+        { name: { $regex: cleanQuery, $options: "i" } },
+        { description: { $regex: cleanQuery, $options: "i" } },
+        { genre: { $regex: cleanQuery, $options: "i" } },
+        { language: { $regex: cleanQuery, $options: "i" } },
+      ];
+
+      if (mongoQuery.releaseDate || mongoQuery.$or) {
+        mongoQuery = { $and: [mongoQuery, { $or: searchOr }] };
+      } else {
+        mongoQuery.$or = searchOr;
+      }
+    }
+
+    const movies = await Movie.find(mongoQuery)
       .sort(sortCriteria)
       .limit(limit)
       .select("name description genre language runtimeMinutes rating avg_rating releaseDate imageUrl")
       .lean();
 
-    // 2. If no currently released movies found, fetch latest available movies in DB
     if (!movies || movies.length === 0) {
-      movies = await Movie.find()
-        .sort(sortCriteria)
-        .limit(limit)
-        .select("name description genre language runtimeMinutes rating avg_rating releaseDate imageUrl")
-        .lean();
-    }
-
-    if (movies && movies.length > 0) {
-      const formatted = movies.slice(0, limit).map((m) => ({
-        id: String(m._id),
-        name: m.name || m.title || "Movie",
-        genre: Array.isArray(m.genre) ? m.genre.join(", ") : m.genre || "Action, Drama",
-        language: m.language || "English",
-        runtime: m.runtimeMinutes ? `${m.runtimeMinutes} mins` : "120 mins",
-        rating: m.avg_rating || m.rating ? `${(m.avg_rating || m.rating).toFixed(1)} ★` : "8.5 ★",
-        releaseDate: m.releaseDate ? new Date(m.releaseDate).toLocaleDateString("en-IN") : "Now Showing",
-        description: m.description || "A premier cinematic pick featured on EpicShow.",
-      }));
-
       return {
-        category: "movies",
-        count: formatted.length,
-        items: formatted,
+        found: false,
+        query,
+        type,
+        count: 0,
+        items: [],
+        message: query
+          ? `No movie matching "${query}" was found in EpicShow's database catalog.`
+          : "No matching movies found in database.",
       };
     }
 
+    const formatted = movies.map((m) => {
+      const ratingVal = m.rating || m.avg_rating || null;
+      return {
+        id: String(m._id),
+        name: m.name || m.title || "Movie",
+        genre: Array.isArray(m.genre) ? m.genre.join(", ") : m.genre || "",
+        language: m.language || "English",
+        runtime: m.runtimeMinutes ? `${m.runtimeMinutes} mins` : "",
+        rating: ratingVal ? `${ratingVal.toFixed(1)} ★` : (m.releaseDate && new Date(m.releaseDate) > now ? "Upcoming (Not yet rated)" : "Unrated"),
+        releaseDate: m.releaseDate
+          ? new Date(m.releaseDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+          : "Now Showing",
+        isUpcoming: Boolean(m.releaseDate && new Date(m.releaseDate) > now),
+        description: m.description || "",
+      };
+    });
+
     return {
-      category: "movies",
-      count: 0,
-      items: [],
+      found: true,
+      query,
+      type,
+      count: formatted.length,
+      items: formatted,
     };
   } catch (error) {
-    console.warn("[User AI Mongo] getUpcomingCatalog query error:", error.message);
+    console.error("[User AI Mongo] searchMoviesInDb error:", error.message);
     return {
-      category: "movies",
+      found: false,
       count: 0,
       items: [],
+      error: error.message,
     };
   }
+}
+
+/**
+ * Search sports matches strictly from MongoDB database
+ * ZERO dummy data or placeholders.
+ * @param {object} options
+ * @param {string|null} options.query - Team, league, city, venue, or sport
+ * @param {number} options.limit
+ * @returns {Promise<object>}
+ */
+export async function searchSportsInDb({ query = null, limit = 5 } = {}) {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return { found: false, count: 0, items: [], message: "Database not connected." };
+    }
+
+    let mongoQuery = {};
+
+    if (query && typeof query === "string" && query.trim()) {
+      const cleanQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").trim();
+      mongoQuery = {
+        $or: [
+          { teamA: { $regex: cleanQuery, $options: "i" } },
+          { teamB: { $regex: cleanQuery, $options: "i" } },
+          { league: { $regex: cleanQuery, $options: "i" } },
+          { sportType: { $regex: cleanQuery, $options: "i" } },
+          { city: { $regex: cleanQuery, $options: "i" } },
+          { venue: { $regex: cleanQuery, $options: "i" } },
+          { description: { $regex: cleanQuery, $options: "i" } },
+        ],
+      };
+    }
+
+    const matches = await Sport.find(mongoQuery)
+      .sort({ date: 1, createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    if (!matches || matches.length === 0) {
+      return {
+        found: false,
+        query,
+        count: 0,
+        items: [],
+        message: query
+          ? `No sports matches matching "${query}" were found in EpicShow's database.`
+          : "No sports matches found in database.",
+      };
+    }
+
+    const formatted = matches.map((s) => {
+      let priceText = "₹300 - ₹600";
+      if (s.prices) {
+        const std = s.prices.standard;
+        const vip = s.prices.vip || s.prices.premium;
+        if (std && vip) {
+          priceText = `₹${std} - ₹${vip}`;
+        } else if (std) {
+          priceText = `From ₹${std}`;
+        }
+      }
+
+      return {
+        id: String(s._id),
+        league: s.league || s.sportType || "Sports Match",
+        matchNo: s.matchNo || "",
+        teams: s.teamA && s.teamB ? `${s.teamA} vs ${s.teamB}` : s.league || "Match",
+        teamA: s.teamA || "",
+        teamB: s.teamB || "",
+        date: s.date || "",
+        time: s.time || "",
+        venue: s.venue ? `${s.venue}, ${s.city || ""}` : s.city || "Stadium",
+        city: s.city || "",
+        priceRange: priceText,
+        rating: s.rating ? `${s.rating.toFixed(1)} ★` : "",
+        language: s.language || "",
+        description: s.description || "",
+      };
+    });
+
+    return {
+      found: true,
+      query,
+      count: formatted.length,
+      items: formatted,
+    };
+  } catch (error) {
+    console.error("[User AI Mongo] searchSportsInDb error:", error.message);
+    return {
+      found: false,
+      count: 0,
+      items: [],
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Search gaming events strictly from MongoDB database
+ * ZERO dummy data or placeholders.
+ * @param {object} options
+ * @param {string|null} options.query - Title, city, venue, or organizer
+ * @param {number} options.limit
+ * @returns {Promise<object>}
+ */
+export async function searchGamingInDb({ query = null, limit = 5 } = {}) {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return { found: false, count: 0, items: [], message: "Database not connected." };
+    }
+
+    let mongoQuery = {};
+
+    if (query && typeof query === "string" && query.trim()) {
+      const cleanQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").trim();
+      mongoQuery = {
+        $or: [
+          { title: { $regex: cleanQuery, $options: "i" } },
+          { city: { $regex: cleanQuery, $options: "i" } },
+          { venue: { $regex: cleanQuery, $options: "i" } },
+          { organizer: { $regex: cleanQuery, $options: "i" } },
+          { description: { $regex: cleanQuery, $options: "i" } },
+        ],
+      };
+    }
+
+    const items = await Gaming.find(mongoQuery)
+      .sort({ startDateTime: 1 })
+      .limit(limit)
+      .lean();
+
+    if (!items || items.length === 0) {
+      return {
+        found: false,
+        query,
+        count: 0,
+        items: [],
+        message: query
+          ? `No gaming events matching "${query}" were found in EpicShow's database.`
+          : "No gaming shows found in database.",
+      };
+    }
+
+    const formatted = items.map((g) => {
+      const d = g.startDateTime ? new Date(g.startDateTime) : null;
+      return {
+        id: String(g._id),
+        title: g.title,
+        venue: g.venue ? `${g.venue}, ${g.city || ""}` : g.city || "",
+        city: g.city || "",
+        date: d ? d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "",
+        time: d ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "",
+        price: g.price !== undefined ? `₹${g.price}` : "Free Pass",
+        availableSeats: g.availableSeats ?? g.totalSeats ?? 0,
+        totalSeats: g.totalSeats ?? 0,
+        organizer: g.organizer || "EpicShow Gaming",
+        description: g.description || "",
+      };
+    });
+
+    return {
+      found: true,
+      query,
+      count: formatted.length,
+      items: formatted,
+    };
+  } catch (error) {
+    console.error("[User AI Mongo] searchGamingInDb error:", error.message);
+    return {
+      found: false,
+      count: 0,
+      items: [],
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Search trains strictly from MongoDB database
+ * ZERO dummy data or placeholders.
+ * @param {object} options
+ * @param {string|null} options.query - Train name or number
+ * @param {string|null} options.from - From station
+ * @param {string|null} options.to - To station
+ * @param {number} options.limit
+ * @returns {Promise<object>}
+ */
+export async function searchTrainsInDb({
+  query = null,
+  from = null,
+  to = null,
+  limit = 5,
+} = {}) {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return { found: false, count: 0, items: [], message: "Database not connected." };
+    }
+
+    const filter = { isActive: true };
+
+    if (from && to) {
+      filter.fromStation = { $regex: from.trim(), $options: "i" };
+      filter.toStation = { $regex: to.trim(), $options: "i" };
+    } else if (from) {
+      filter.fromStation = { $regex: from.trim(), $options: "i" };
+    } else if (to) {
+      filter.toStation = { $regex: to.trim(), $options: "i" };
+    } else if (query && typeof query === "string" && query.trim()) {
+      const cleanQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").trim();
+      filter.$or = [
+        { trainName: { $regex: cleanQuery, $options: "i" } },
+        { trainNumber: { $regex: cleanQuery, $options: "i" } },
+        { fromStation: { $regex: cleanQuery, $options: "i" } },
+        { toStation: { $regex: cleanQuery, $options: "i" } },
+        { trainType: { $regex: cleanQuery, $options: "i" } },
+      ];
+    }
+
+    const trains = await Train.find(filter)
+      .sort({ rating: -1, createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    if (!trains || trains.length === 0) {
+      return {
+        found: false,
+        query: query || (from && to ? `${from} to ${to}` : null),
+        count: 0,
+        items: [],
+        message: query || (from && to)
+          ? `No trains matching the criteria were found in EpicShow's database.`
+          : "No trains found in database.",
+      };
+    }
+
+    const formatted = trains.map((t) => ({
+      id: String(t._id),
+      trainNumber: t.trainNumber,
+      trainName: t.trainName,
+      fromStation: t.fromStation,
+      toStation: t.toStation,
+      route: `${t.fromStation} ➔ ${t.toStation}`,
+      trainType: t.trainType,
+      departureTime: t.departureTime,
+      arrivalTime: t.arrivalTime,
+      duration: t.duration,
+      price: t.price !== undefined ? `₹${t.price}` : "",
+      availableSeats: t.availableSeats ?? 0,
+      rating: t.rating ? `${t.rating.toFixed(1)} ★` : "",
+      operatingDays: Array.isArray(t.operatingDays) ? t.operatingDays.join(", ") : "",
+      amenities: Array.isArray(t.amenities) ? t.amenities.join(", ") : "",
+    }));
+
+    return {
+      found: true,
+      query: query || (from && to ? `${from} to ${to}` : null),
+      count: formatted.length,
+      items: formatted,
+    };
+  } catch (error) {
+    console.error("[User AI Mongo] searchTrainsInDb error:", error.message);
+    return {
+      found: false,
+      count: 0,
+      items: [],
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Backward compatibility alias for currently playing catalog
+ */
+export async function getUpcomingCatalog(category = "movies", limit = 3, sortBy = "latest") {
+  return searchMoviesInDb({ type: "playing", limit, sortBy });
 }

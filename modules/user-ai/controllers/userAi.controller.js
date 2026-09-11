@@ -52,7 +52,7 @@ export async function optionalAuth(req, res, next) {
  */
 export async function handleChatStream(req, res) {
   const { message, history } = req.body || {};
-  console.log("[User AI Controller] Incoming chat message:", message);
+  // console.log("[User AI Controller] Incoming chat message:", message);
 
   if (!message || typeof message !== "string" || !message.trim()) {
     return res.status(400).json({ error: "Message is required." });
