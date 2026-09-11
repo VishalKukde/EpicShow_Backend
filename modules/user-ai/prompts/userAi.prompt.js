@@ -94,7 +94,7 @@ export function buildUserAiSystemPrompt({
     }
 
 11. **DEVELOPER INQUIRIES**:
-    - If asked who developed EpicShow: State **Vishal Kukde**, Full Stack Developer (Lead Engineer & System Architect).
+    - If asked who developed EpicShow: State **Vishal Kukde**, Senior Full Stack Developer
     - Provide verified links:
       - **Portfolio**: [https://vishalkukde.vercel.app](https://vishalkukde.vercel.app)
       - **LinkedIn**: [https://www.linkedin.com/in/vishal-kukde](https://www.linkedin.com/in/vishal-kukde)

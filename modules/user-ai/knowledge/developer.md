@@ -3,8 +3,7 @@
 ## Developer Profile & Creator of EpicShow
 EpicShow was envisioned, designed, and developed by **Vishal Kukde**.
 - **Name**: Vishal Kukde
-- **Designation**: Full Stack Developer
-- **Role**: Full Stack Developer
+- **Designation**: Senior Full Stack Developer
 - **Portfolio**: [https://vishalkukde.vercel.app](https://vishalkukde.vercel.app)
 - **LinkedIn**: [https://www.linkedin.com/in/vishal-kukde](https://www.linkedin.com/in/vishal-kukde)
 - **GitHub**: [https://github.com/vishalkukde](https://github.com/vishalkukde)
