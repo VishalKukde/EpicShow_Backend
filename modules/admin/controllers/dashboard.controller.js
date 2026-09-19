@@ -694,12 +694,65 @@ export const getAdminDashboard = async (req, res) => {
       Payment.aggregate([
         ...paymentMatchStage,
         {
+          $lookup: {
+            from: "bookings",
+            localField: "bookingId",
+            foreignField: "_id",
+            as: "movieBooking",
+          },
+        },
+        {
+          $lookup: {
+            from: "sportbookings",
+            localField: "bookingId",
+            foreignField: "_id",
+            as: "sportBooking",
+          },
+        },
+        {
+          $lookup: {
+            from: "trainbookings",
+            localField: "bookingId",
+            foreignField: "_id",
+            as: "trainBooking",
+          },
+        },
+        {
+          $addFields: {
+            bStatus: {
+              $ifNull: [
+                { $arrayElemAt: ["$movieBooking.status", 0] },
+                {
+                  $ifNull: [
+                    { $arrayElemAt: ["$sportBooking.status", 0] },
+                    { $arrayElemAt: ["$trainBooking.status", 0] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        {
           $group: {
             _id: null,
             totalOrders: { $sum: 1 },
             paidOrders: { $sum: { $cond: [{ $eq: ["$status", "success"] }, 1, 0] } },
             failedOrders: { $sum: { $cond: [{ $eq: ["$status", "failed"] }, 1, 0] } },
-            refundedOrders: { $sum: { $cond: [{ $eq: ["$status", "refunded"] }, 1, 0] } },
+            refundedOrders: { $sum: { $cond: [{ $in: ["$status", ["refunded", "refund_initiated"]] }, 1, 0] } },
+            cancelledOrders: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ["$status", "cancelled"] },
+                      { $eq: ["$bStatus", "cancelled"] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
           },
         },
       ]),
@@ -841,6 +894,7 @@ export const getAdminDashboard = async (req, res) => {
           paidOrders: orders.paidOrders || 0,
           failedOrders: orders.failedOrders || 0,
           refundedOrders: orders.refundedOrders || 0,
+          cancelledOrders: orders.cancelledOrders || 0,
         },
         monthlyRevenue,
         categorySplits: categories.map((item) => ({
@@ -1064,6 +1118,20 @@ export const getAdminOrders = async (req, res) => {
                 refundedOrders: {
                   $sum: { $cond: [{ $eq: ["$paymentStatus", "refunded"] }, 1, 0] },
                 },
+                cancelledOrders: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ["$paymentStatus", "cancelled"] },
+                          { $eq: ["$bookingStatus", "cancelled"] },
+                        ],
+                      },
+                      1,
+                      0,
+                    ],
+                  },
+                },
                 ticketsSold: { $sum: "$ticketCount" },
               },
             },
@@ -1087,6 +1155,16 @@ export const getAdminOrders = async (req, res) => {
         totalRevenue: money(summary.totalRevenue),
         failedOrders: summary.failedOrders || 0,
         refundedOrders: summary.refundedOrders || 0,
+        refundInitiatedOrders: summary.refundInitiatedOrders || 0,
+        cancelledOrders: summary.cancelledOrders || 0,
+        paidOrders: Math.max(
+          0,
+          (summary.totalOrders || 0) -
+            ((summary.failedOrders || 0) +
+              (summary.refundedOrders || 0) +
+              (summary.refundInitiatedOrders || 0) +
+              (summary.cancelledOrders || 0))
+        ),
         ticketsSold: summary.ticketsSold || 0,
       },
       pagination: {

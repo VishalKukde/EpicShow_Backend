@@ -10,7 +10,7 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["wallet_refund"],
+      enum: ["wallet_refund", "admin_broadcast", "broadcast", "support_chat"],
       required: true,
       index: true,
     },

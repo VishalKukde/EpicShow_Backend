@@ -39,12 +39,15 @@ import { handleRazorpaySubscriptionWebhook } from "./modules/subscription/contro
 import { startSubscriptionExpiryJob } from "./modules/subscription/jobs/subscription-expiry.job.js";
 import userAiRoutes from "./modules/user-ai/routes/userAi.routes.js";
 import { initializeKnowledgeBase } from "./modules/user-ai/services/rag.service.js";
+import { initializeNotificationWorker } from "./modules/notifications/workers/notification.worker.js";
+import dns from "dns";
 
 const app = express();
 const port = process.env.PORT || 5000;
 const MONGO_URIS = process.env.MONGO_URI;
 
 app.set("trust proxy", 1);
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 // Connect to MongoDB
 // console.log("Mongo URI:", process.env.MONGO_URI);
@@ -178,6 +181,7 @@ server.listen(process.env.PORT || 5000, () => {
   console.log(`Server running at http://localhost:${port}`);
   startSubscriptionExpiryJob();
   initializeKnowledgeBase();
+  initializeNotificationWorker();
 });
 
 // Start server

@@ -17,6 +17,10 @@ import {
   getUsersForAllocation,
   updateAdminCoupon,
 } from "../controllers/coupon.controller.js";
+import {
+  broadcastNotification,
+  getBroadcastCampaigns,
+} from "../../notifications/controller/notification.controller.js";
 
 const router = express.Router();
 
@@ -36,5 +40,9 @@ router.delete("/coupons/:id", authMiddleware, deleteAdminCoupon);
 router.get("/coupons/:id/allocations", authMiddleware, getCouponAllocations);
 router.post("/coupons/:id/allocate", authMiddleware, allocateCouponToUsers);
 router.get("/coupons-users", authMiddleware, getUsersForAllocation);
+
+// Admin Broadcast Notification
+router.get("/notifications/broadcasts", authMiddleware, getBroadcastCampaigns);
+router.post("/notifications/broadcast", authMiddleware, broadcastNotification);
 
 export default router;
