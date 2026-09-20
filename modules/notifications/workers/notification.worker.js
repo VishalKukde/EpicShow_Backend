@@ -26,9 +26,11 @@ export const processBroadcastJob = async (job) => {
   }
 
   // 1. Determine user query based on targetSegment
-  const userFilter = { status: { $ne: "Deactivated" } };
+  const userFilter = { role: { $ne: "admin" }, status: { $ne: "Deactivated" } };
   if (targetSegment === "Pro Plan Subscribers") {
     userFilter.membership = "pro";
+  } else if (targetSegment === "Free Plan Users") {
+    userFilter.membership = { $ne: "pro" };
   }
 
   const users = await User.find(userFilter).select("_id").lean();

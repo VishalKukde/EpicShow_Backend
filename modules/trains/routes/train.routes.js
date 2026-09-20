@@ -1,4 +1,5 @@
 import express from "express";
+import requireSectionEnabled from "../../sections/middleware/requireSectionEnabled.js";
 import * as trainController from "../controllers/train.controller.js";
 import {
   createTrainOrder,
@@ -27,11 +28,11 @@ router.get("/available", trainController.getAvailableTrains);
 // User routes (protected)
 router.get("/passengers", authMiddleware, trainController.getSavedPassengers);
 router.post("/passengers", authMiddleware, trainController.savePassenger);
-router.post("/payment/prepare", authMiddleware, prepareTrainPayment);
-router.post("/payment/create-order", authMiddleware, createTrainOrder);
+router.post("/payment/prepare", authMiddleware, requireSectionEnabled("trains"), prepareTrainPayment);
+router.post("/payment/create-order", authMiddleware, requireSectionEnabled("trains"), createTrainOrder);
 router.post("/payment/verify", authMiddleware, verifyTrainPayment);
 router.post("/payment/fail", authMiddleware, markTrainPaymentFailed);
-router.post("/payment/wallet-pay", authMiddleware, payTrainWithWallet);
+router.post("/payment/wallet-pay", authMiddleware, requireSectionEnabled("trains"), payTrainWithWallet);
 router.post("/book", authMiddleware, trainController.bookTrain);
 router.get("/user/bookings", authMiddleware, trainController.getUserBookings);
 router.get("/bookings/profile", authMiddleware, trainController.getProfileTrainBookings);

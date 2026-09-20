@@ -21,6 +21,10 @@ import {
   broadcastNotification,
   getBroadcastCampaigns,
 } from "../../notifications/controller/notification.controller.js";
+import {
+  getAdminSections,
+  updateSection,
+} from "../../sections/controller/section.controller.js";
 
 const router = express.Router();
 
@@ -44,5 +48,9 @@ router.get("/coupons-users", authMiddleware, getUsersForAllocation);
 // Admin Broadcast Notification
 router.get("/notifications/broadcasts", authMiddleware, getBroadcastCampaigns);
 router.post("/notifications/broadcast", authMiddleware, broadcastNotification);
+
+// Section availability — admin can switch booking on/off per section
+router.get("/sections", authMiddleware, getAdminSections);
+router.patch("/sections/:key", authMiddleware, updateSection);
 
 export default router;

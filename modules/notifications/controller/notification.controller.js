@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Notification from "../model/Notification.js";
 import BroadcastCampaign from "../model/BroadcastCampaign.js";
 import User from "../../user/model/User.js";
@@ -116,6 +117,34 @@ export const markNotificationsRead = async (req, res) => {
   }
 };
 
+export const deleteNotification = async (req, res) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid notification id" });
+    }
+
+    const result = await Notification.deleteOne({ _id: id, user: req.user.id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    const unreadCount = await Notification.countDocuments({
+      user: req.user.id,
+      readAt: null,
+    });
+
+    return res.json({ success: true, unreadCount });
+  } catch (error) {
+    console.error("deleteNotification error:", error);
+    return res.status(500).json({ message: "Failed to delete notification" });
+  }
+};
+
 export const broadcastNotification = async (req, res) => {
   try {
     if (!req.user?.id) {
@@ -140,7 +169,7 @@ export const broadcastNotification = async (req, res) => {
 
     const channel = req.body?.channel || "Push Notification";
     const targetSegment = req.body?.targetSegment || "All Registered Users";
-    const deepLink = req.body?.deepLink || "/movies";
+    const deepLink = req.body?.deepLink || "";
 
     const broadcastId = `bcast_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -196,26 +225,20 @@ export const getBroadcastCampaigns = async (req, res) => {
     }
 
     // 1. Fetch real user and audience stats
-    const totalUsers = await User.countDocuments({ status: { $ne: "Deactivated" } });
+    const totalUsers = await User.countDocuments({
+      role: { $ne: "admin" },
+      status: { $ne: "Deactivated" },
+    });
     const proUsers = await User.countDocuments({
+      role: { $ne: "admin" },
       status: { $ne: "Deactivated" },
       membership: "pro",
     });
-
-    let movieUsers = totalUsers;
-    let trainUsers = totalUsers;
-    try {
-      if (global.mongoose?.models?.MovieBooking) {
-        const distinctMovieUsers = await global.mongoose.models.MovieBooking.distinct("user");
-        if (distinctMovieUsers.length > 0) movieUsers = distinctMovieUsers.length;
-      }
-      if (global.mongoose?.models?.TrainBooking) {
-        const distinctTrainUsers = await global.mongoose.models.TrainBooking.distinct("userId");
-        if (distinctTrainUsers.length > 0) trainUsers = distinctTrainUsers.length;
-      }
-    } catch {
-      // fallback to active user count
-    }
+    const freeUsers = await User.countDocuments({
+      role: { $ne: "admin" },
+      status: { $ne: "Deactivated" },
+      membership: { $ne: "pro" },
+    });
 
     // 2. Aggregate real broadcasts from Notification collection
     const rawAgg = await Notification.aggregate([
@@ -319,8 +342,7 @@ export const getBroadcastCampaigns = async (req, res) => {
         segmentCounts: {
           "All Registered Users": totalUsers,
           "Pro Plan Subscribers": proUsers,
-          "Movie Enthusiasts": movieUsers,
-          "Train Travelers": trainUsers,
+          "Free Plan Users": freeUsers,
         },
       },
     });

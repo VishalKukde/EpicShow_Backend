@@ -1,4 +1,5 @@
 import express from "express";
+import requireSectionEnabled from "../../sections/middleware/requireSectionEnabled.js";
 import {
   createOrder,
   markPaymentFailed,
@@ -12,11 +13,11 @@ import authMiddleware from "../../../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.post("/payment/prepare", authMiddleware, preparePayment);
-router.post("/payment/create-order", authMiddleware, createOrder);
+router.post("/payment/prepare", authMiddleware, requireSectionEnabled("movies"), preparePayment);
+router.post("/payment/create-order", authMiddleware, requireSectionEnabled("movies"), createOrder);
 router.post("/payment/verify", authMiddleware, verifyPayment);
 router.post("/payment/fail", authMiddleware, markPaymentFailed);
-router.post("/payment/wallet-pay", authMiddleware, payWithWallet);
+router.post("/payment/wallet-pay", authMiddleware, requireSectionEnabled("movies"), payWithWallet);
 router.get("/payment/transactions", authMiddleware, getPaymentTransactions);
 router.post("/payment/export-statement", authMiddleware, exportStatement);
 
