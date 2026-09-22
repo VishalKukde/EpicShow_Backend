@@ -110,6 +110,22 @@ const userSchema = new mongoose.Schema(
 
     lastLogin: Date,
 
+    /**
+     * Second factor for admin sign-in (TOTP / Microsoft Authenticator).
+     *
+     * The secret is AES-256-GCM encrypted and never selected by default, so a
+     * stray query cannot leak it.
+     */
+    adminTotp: {
+      secret: { type: String, default: null, select: false },
+      enabled: { type: Boolean, default: false },
+      /** Time step of the last accepted code — blocks replay of the same code. */
+      lastTimeStep: { type: Number, default: 0, select: false },
+      failedAttempts: { type: Number, default: 0, select: false },
+      lockedUntil: { type: Date, default: null, select: false },
+      activatedAt: { type: Date, default: null },
+    },
+
     refreshToken: String,
 
     tokenVersion: {

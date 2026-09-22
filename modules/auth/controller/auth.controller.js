@@ -8,6 +8,7 @@ import { sendPasswordChangedEmail } from "../../../utils/email.js";
 import { parseUserAgent, getClientIp } from "../../../utils/parseUserAgent.js";
 import User from "../../user/model/User.js";
 import UserSession from "../../user/model/UserSession.js";
+import { isRegistrationEnabled } from "../../platform/service/platform.service.js";
 
 dotenv.config();
 const isProd = process.env.NODE_ENV === "production";
@@ -29,6 +30,13 @@ const cookieOptions = (req, maxAge) => {
 };
 
 export const register = asyncHandler(async (req, res) => {
+    // Admins can close sign-ups from Portal Settings without a deploy.
+    if (!(await isRegistrationEnabled())) {
+        return res.status(403).json({
+            message: "New registrations are temporarily closed. Please try again later.",
+        });
+    }
+
     await User.create(req.body);
     res.status(201).json({
         message: "User registered successfully. Please login.",

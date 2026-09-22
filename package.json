@@ -24,6 +24,8 @@
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
+    "otplib": "^13.5.0",
+    "qrcode": "^1.5.4",
     "razorpay": "^2.9.6",
     "redis": "^5.12.1",
     "resend": "^4.1.2",

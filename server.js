@@ -30,14 +30,18 @@ import adminRoutes from "./modules/admin/routes/admin.routes.js";
 import feedbackRoutes from "./modules/feedback/routes/feedback.routes.js";
 import notificationRoutes from "./modules/notifications/routes/notification.routes.js";
 import sectionRoutes from "./modules/sections/routes/section.routes.js";
+import platformRoutes from "./modules/platform/routes/platform.routes.js";
 import { initializeChatSocket } from "./modules/chat/socket/chat.socket.js";
 import { initializeShowSocket } from "./modules/movies/socket/show.socket.js";
+import { initializePlatformSocket } from "./modules/platform/socket/platform.socket.js";
 import errorHandler from "./middleware/error.middleware.js";
 import { getRedisClient } from "./config/redis.js";
 import refundRoutes from "./modules/refunds/routes/refund.routes.js"
 import subscriptionRoutes from "./modules/subscription/routes/subscription.routes.js";
 import { handleRazorpaySubscriptionWebhook } from "./modules/subscription/controller/subscription.controller.js";
 import { startSubscriptionExpiryJob } from "./modules/subscription/jobs/subscription-expiry.job.js";
+import { startBookingExpiryJob } from "./modules/platform/jobs/booking-expiry.job.js";
+import { calibrate as calibrateTrustedTime } from "./modules/auth/service/trusted-time.service.js";
 import userAiRoutes from "./modules/user-ai/routes/userAi.routes.js";
 import { initializeKnowledgeBase } from "./modules/user-ai/services/rag.service.js";
 import { initializeNotificationWorker } from "./modules/notifications/workers/notification.worker.js";
@@ -150,6 +154,7 @@ app.use("/", bookingRoutes);
 app.use("/", walletRoutes);
 app.use("/", notificationRoutes);
 app.use("/", sectionRoutes);
+app.use("/", platformRoutes);
 app.use("/", offersRoutes);
 app.use("/", feedbackRoutes);
 app.use("/", subscriptionRoutes);
@@ -178,10 +183,15 @@ const io = new Server(server, {
 
 initializeChatSocket(io);
 initializeShowSocket(io);
+initializePlatformSocket(io);
 
 server.listen(process.env.PORT || 5000, () => {
   console.log(`Server running at http://localhost:${port}`);
+  // Measure this host's clock error up front so admin TOTP works on the
+  // first sign-in rather than after the first lazy refresh.
+  calibrateTrustedTime({ force: true }).catch(() => { });
   startSubscriptionExpiryJob();
+  startBookingExpiryJob();
   initializeKnowledgeBase();
   initializeNotificationWorker();
 });

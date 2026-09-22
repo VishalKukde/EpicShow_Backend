@@ -18,7 +18,6 @@ import {
 const MIN_REWARD_POINTS_TO_ELIGIBLE = 150;
 const REWARD_REDEEM_POINTS = 100;
 const REWARD_REDEEM_DISCOUNT = 100;
-const REWARD_EARN_RATE = 0.1;
 
 const normalizeAmount = (value) => {
   const parsed = Number(value);
@@ -52,7 +51,7 @@ export const preparePayment = async (req, res) => {
       return res.status(400).json({ message: "Missing booking details" });
     }
 
-    assertTicketLimitForMembership(seatIds, req.user?.membership);
+    await assertTicketLimitForMembership(seatIds, req.user?.membership);
 
     const baseAmount = normalizeAmount(amount);
     if (baseAmount === null) {
@@ -156,7 +155,7 @@ export const createOrder = async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    assertTicketLimitForMembership(seatIds, req.user?.membership);
+    await assertTicketLimitForMembership(seatIds, req.user?.membership);
 
     if (!league || !teamA || !teamB) {
       await session.abortTransaction();
@@ -410,8 +409,8 @@ export const verifyPayment = async (req, res) => {
     const earningUser = canEarnReward
       ? await User.findById(booking.userId).select("membership").session(session)
       : null;
-    const rewardEarnRate = getRewardEarnRateForMembership(
-      REWARD_EARN_RATE,
+    const rewardEarnRate = await getRewardEarnRateForMembership(
+      null,
       earningUser?.membership
     );
     const earnedPoints = canEarnReward
@@ -614,8 +613,8 @@ export const payWithWallet = async (req, res) => {
     const canEarnReward =
       Number(booking.rewardPointsRedeemed || 0) === 0 &&
       Number(booking.amount || 0) > 0;
-    const rewardEarnRate = getRewardEarnRateForMembership(
-      REWARD_EARN_RATE,
+    const rewardEarnRate = await getRewardEarnRateForMembership(
+      null,
       user.membership
     );
     const earnedPoints = canEarnReward

@@ -23,9 +23,10 @@ const FALLBACK_REMOVE_SCRIPT = `
   return 1
 `;
 
-const normalizeTtlSeconds = (ttl) => {
+// The fallback is passed in, because the tier's hold length is an async lookup now.
+const normalizeTtlSeconds = (ttl, fallbackSeconds) => {
   if (!Number.isFinite(ttl) || ttl <= 0) {
-    return getSeatLockTtlSecondsForMembership();
+    return fallbackSeconds;
   }
 
   return Math.floor(ttl);
@@ -39,7 +40,7 @@ export const getSeatLockScheduleKey = () => LOCK_SCHEDULE_KEY;
 export const resolveShowLockTtlSeconds = async ({ showId, userId, membership }) => {
   const redis = await getRedisClient();
   const sessionKey = buildShowSessionKey(showId, userId);
-  const requestedTtlSeconds = getSeatLockTtlSecondsForMembership(membership);
+  const requestedTtlSeconds = await getSeatLockTtlSecondsForMembership(membership);
 
   let ttlSeconds = await redis.ttl(sessionKey);
 
@@ -54,7 +55,7 @@ export const resolveShowLockTtlSeconds = async ({ showId, userId, membership }) 
     ttlSeconds = requestedTtlSeconds;
   }
 
-  return normalizeTtlSeconds(ttlSeconds);
+  return normalizeTtlSeconds(ttlSeconds, requestedTtlSeconds);
 };
 
 export const acquireSeatLock = async ({ showId, seatId, userId, membership }) => {

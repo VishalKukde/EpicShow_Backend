@@ -1,6 +1,11 @@
 import express from "express";
 import authMiddleware from "../../../middleware/auth.middleware.js";
 import {
+  getAdminPlatformSettings,
+  updateAdminPlatformSettings,
+} from "../../platform/controller/platform.controller.js";
+import { getCustomerSegments } from "../controllers/segments.controller.js";
+import {
   getAdminBookings,
   getAdminDashboard,
   getAdminOrders,
@@ -51,6 +56,9 @@ router.post("/notifications/broadcast", authMiddleware, broadcastNotification);
 
 // Section availability — admin can switch booking on/off per section
 router.get("/sections", authMiddleware, getAdminSections);
+router.get("/customer-segments", authMiddleware, getCustomerSegments);
+router.get("/platform-settings", authMiddleware, getAdminPlatformSettings);
+router.patch("/platform-settings", authMiddleware, updateAdminPlatformSettings);
 router.patch("/sections/:key", authMiddleware, updateSection);
 
 export default router;

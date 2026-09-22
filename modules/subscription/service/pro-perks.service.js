@@ -1,22 +1,38 @@
-const FREE_TICKET_LIMIT = 2;
-const PRO_TICKET_LIMIT = 5;
-const FREE_SEAT_LOCK_SECONDS = 5 * 60;
-const PRO_SEAT_LOCK_SECONDS = 10 * 60;
-const PRO_REWARD_MULTIPLIER = 2;
+import {
+  getRewardEarnRateFor,
+  getSeatHoldSecondsFor,
+  getTicketLimitFor,
+} from "../../platform/service/platform.service.js";
+
+/**
+ * Membership perks.
+ *
+ * These used to be hardcoded constants here, which meant the Portal Settings
+ * seat limit was advertised to the browser but never enforced at payment. They
+ * now read the admin-configured platform settings (which fall back to the same
+ * defaults: 2/5 seats, 5/10 minute holds, 0.1 points per rupee, 2x for Pro).
+ *
+ * The getters are async because settings live in MongoDB behind a short cache.
+ */
 
 export const isProMembership = (membership) => membership === "pro";
 
-export const getTicketLimitForMembership = (membership) =>
-  isProMembership(membership) ? PRO_TICKET_LIMIT : FREE_TICKET_LIMIT;
+export const getTicketLimitForMembership = (membership) => getTicketLimitFor(membership);
 
 export const getSeatLockTtlSecondsForMembership = (membership) =>
-  isProMembership(membership) ? PRO_SEAT_LOCK_SECONDS : FREE_SEAT_LOCK_SECONDS;
+  getSeatHoldSecondsFor(membership);
 
-export const getRewardEarnRateForMembership = (baseRate, membership) =>
-  Number(baseRate) * (isProMembership(membership) ? PRO_REWARD_MULTIPLIER : 1);
+/**
+ * Points earned per rupee, Pro multiplier applied.
+ *
+ * `baseRate` is accepted for the existing call sites but ignored — the rate is
+ * an admin setting now, so a caller cannot quietly diverge from it.
+ */
+export const getRewardEarnRateForMembership = (_baseRate, membership) =>
+  getRewardEarnRateFor(membership);
 
-export const assertTicketLimitForMembership = (seatIds = [], membership) => {
-  const ticketLimit = getTicketLimitForMembership(membership);
+export const assertTicketLimitForMembership = async (seatIds = [], membership) => {
+  const ticketLimit = await getTicketLimitFor(membership);
   const selectedCount = Array.isArray(seatIds) ? seatIds.length : 0;
 
   if (selectedCount > ticketLimit) {

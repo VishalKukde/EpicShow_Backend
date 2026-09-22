@@ -97,7 +97,7 @@ const trainBookingSchema = new Schema(
 
     status: {
       type: String,
-      enum: ["confirmed", "cancelled", "pending", "failed"],
+      enum: ["confirmed", "cancelled", "pending", "failed", "expired"],
       default: "pending",
     },
 
